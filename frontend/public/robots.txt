@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+# 仅首页可索引（控制台/管理后台需登录，不允许抓取）
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /login
+Disallow: /register
+Disallow: /api
+
+Sitemap: https://mail.muyang-bai.com/sitemap.xml

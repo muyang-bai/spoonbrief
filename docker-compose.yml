@@ -1,0 +1,122 @@
+# ════════════════════════════════════════════════════════════
+# 一勺热点 生产编排
+# 架构：nginx(宿主机,SSL) → frontend:8080 → backend:8000
+#       celery-beat(唯一调度) → redis → celery-worker(生成/发送)
+#       postgres(数据) + 每日备份(cron) + 失败告警邮件(内置)
+# 关键：ENABLE_LOCAL_SCHEDULER=false，避免与 beat 双重派发
+# ════════════════════════════════════════════════════════════
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hotmail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}
+      POSTGRES_DB: ${POSTGRES_DB:-hotmailbrief}
+      TZ: Asia/Shanghai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hotmail} -d ${POSTGRES_DB:-hotmailbrief}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: hotmailbrief:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      USE_SQLITE: "false"
+      ENABLE_LOCAL_SCHEDULER: "false"
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    volumes:
+      - ./data:/app/data        # 数据迁移快照等（rw：SQLite 快照读取需要写锁文件）
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+
+  celery-worker:
+    image: hotmailbrief:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      USE_SQLITE: "false"
+      ENABLE_LOCAL_SCHEDULER: "false"
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info --concurrency=2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    image: hotmailbrief:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      USE_SQLITE: "false"
+      ENABLE_LOCAL_SCHEDULER: "false"
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    command: celery -A app.tasks.celery_app.celery_app beat --loglevel=info --schedule /var/lib/celery/beat-schedule
+    volumes:
+      - beatdata:/var/lib/celery
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: hotmailbrief:latest
+    restart: unless-stopped
+    environment:
+      FRONTEND_PORT: "8080"
+      FRONTEND_HOST: "0.0.0.0"
+      FRONTEND_DIR: /app/frontend/dist
+      BACKEND_URL: http://backend:8000
+    command: python /app/serve_frontend.py
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
+  redisdata:
+  beatdata:

@@ -1,0 +1,49 @@
+# ── Web 框架 ──
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+gunicorn==21.2.0
+
+# ── ORM 与数据库 ──
+sqlalchemy==2.0.52         # 2.0.27 不兼容 Python 3.14，升级
+alembic==1.13.1
+# psycopg2-binary==2.9.9  # SQLite 模式不需要；2.9.9 无 cp314 wheel，Windows 无法构建
+# asyncpg==0.29.0         # SQLite 模式不需要；0.29.0 无 cp314 wheel
+
+# ── 认证 ──
+pyjwt==2.8.0
+bcrypt==5.0.0              # 直接使用；passlib 已停止维护且与 bcrypt>=4.1 不兼容
+
+# ── 数据校验 ──
+pydantic==2.13.5           # 2.6.1 的 pydantic-core 无 cp314 wheel，升级
+pydantic-settings==2.15.0  # 与 pydantic 2.13 配套
+email-validator==2.1.0
+
+# ── 异步任务 ──
+celery[redis]==5.6.3       # 5.3.6 不兼容 Python 3.14，升级
+redis>=5.2,<6.5            # 5.0.2 被 kombu 5.6 排除，放宽
+apscheduler==3.11.3
+
+# ── HTTP 请求 ──
+httpx==0.27.0
+aiohttp==3.14.3            # 3.9.3 无 cp314 wheel，升级
+feedparser==6.0.11        # RSS 解析
+beautifulsoup4==4.12.3
+
+# ── AI 接口 ──
+openai==1.12.0            # 兼容 DeepSeek/火山方舟 OpenAI 兼容接口
+
+# ── 邮件 ──
+aiosmtplib==3.0.2
+
+# ── 工具 ──
+python-dotenv==1.0.1
+cryptography==50.0.1       # 42.0.2 无 cp314 wheel，升级；API Key 加密
+jinja2==3.1.3             # 邮件模板
+croniter==2.0.5           # cron 解析
+python-dateutil==2.8.2
+jieba==0.42.1             # 中文分词：信息池事件语义归并
+
+# ── 日志与监控 ──
+loguru==0.7.2
+sentry-sdk[fastapi]==1.40.3

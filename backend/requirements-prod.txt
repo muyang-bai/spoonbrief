@@ -1,0 +1,6 @@
+# 生产环境补充依赖（Linux 专用；本地 Windows 开发仍用 requirements.txt）
+-r requirements.txt
+
+# PostgreSQL 驱动
+psycopg2-binary==2.9.9
+asyncpg==0.29.0

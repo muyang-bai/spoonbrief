@@ -1,0 +1,20 @@
+{
+  "name": "hotmail-brief-frontend",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "一勺热点 - AI 驱动的热点情报邮件前端（重建版，主题与现网一致）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.5"
+  }
+}
