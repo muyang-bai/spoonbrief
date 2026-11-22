@@ -61,6 +61,8 @@ class Subscription(Base):
     # 无重要更新时的策略：skip=跳过不发；digest=周期汇总；always=照常推送（t162）
     novelty_policy = Column(String(16), default="digest", nullable=False)
     digest_window_days = Column(Integer, default=3, nullable=False)
+    # 跳过时是否发一封"今日无新增"短通知（t190）
+    skip_notice = Column(Boolean, default=True, nullable=False)
 # ---
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

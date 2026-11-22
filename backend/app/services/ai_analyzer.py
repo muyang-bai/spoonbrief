@@ -86,6 +86,7 @@ class AIAnalyzer:
         subscription_api_key_id: Optional[int] = None,
         keywords: Optional[List[str]] = None,
         feedback_hint: str = "",
+        with_decision: bool = False,
     ) -> str:
         # 1. Determine prompt template
         prompt_tpl = None
@@ -154,6 +155,19 @@ class AIAnalyzer:
                 "若素材中没有相关新闻，请如实说明并给出最接近的相关信息。"
             )
 
+        if with_decision:
+            user_prompt += (
+                "\n\n## 结构化决策块（必须）\n"
+                "在正文全部写完之后，另起一行，先输出标记行 <<<DECISION_JSON>>>，再输出一个 JSON（单行或格式化均可），最后输出标记行 <<<END_DECISION_JSON>>>。\n"
+                "不要把这段 JSON 写进正文，也不要使用代码围栏。JSON 结构：\n"
+                "{\"headline\":\"一句话结论，40字内\","
+                "\"brief\":[\"速览1\",\"速览2\",\"速览3\"],"
+                "\"items\":[{\"idx\":1,\"sentiment\":\"利好|利空|中性\",\"impact\":1到10整数,\"action\":\"30字内可执行建议\"}],"
+                "\"actions\":[\"行动1\",\"行动2\",\"行动3\"],"
+                "\"dims\":{\"个人财务\":1到10,\"职业发展\":1到10,\"学业成长\":1到10,\"政策合规\":1到10,\"行业趋势\":1到10}}\n"
+                "要求：items 覆盖全部素材编号；impact 是影响强度不是热度；正文中不要重复这段 JSON。"
+            )
+
         analysis_raw = await self._call_llm(
             client, model,
             system=system_prompt,
@@ -162,6 +176,26 @@ class AIAnalyzer:
             max_tokens=8000,  # Bounded single analyst output; do not slice away template sections.
             retry_empty=False,
         )
+
+        decision_data = None
+        if with_decision:
+            import json as _json
+            import re as _re
+            _raw = str(analysis_raw or "")
+            _m = _re.search(r"<<<DECISION_JSON>>>([\s\S]*?)<<<END_DECISION_JSON>>>", _raw)
+            if not _m:
+                _m = _re.search(r"```json\s*(\{[\s\S]*?\})\s*```", _raw)
+            if _m:
+                try:
+                    from app.services.decision_layer import _normalize as _norm
+                    decision_data = _norm(_json.loads(_m.group(1).strip()), len(materials))
+                except Exception as _e:
+                    logger.warning(f"决策块解析失败，将回退到独立决策调用: {_e} | tail={_raw[-160:]!r}")
+            if decision_data:
+                analysis_raw = _re.sub(r"<<<DECISION_JSON>>>[\s\S]*?<<<END_DECISION_JSON>>>", "", _raw).strip()
+                analysis_raw = _re.sub(r"```json[\s\S]*?```", "", analysis_raw).strip()
+            else:
+                logger.warning("合并决策块缺失，回退到独立决策调用")
 
         final_html = _clean_ai_output(analysis_raw)
 
@@ -178,6 +212,8 @@ class AIAnalyzer:
             quality['warnings'].append('模型达到输出预算，本期分析可能不完整')
         final_html, citation_warnings = bind_citations(final_html, materials)
         quality['warnings'].extend(citation_warnings)
+        if with_decision:
+            quality['decision'] = decision_data
         quality['status'] = 'degraded' if quality['warnings'] else 'complete'
         logger.info(f"Analyst output: {len(final_html)} chars / status={quality['status']}")
         return AnalysisResult(final_html, quality)

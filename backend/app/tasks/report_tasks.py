@@ -195,6 +195,22 @@ def generate_report(self, subscription_id: int):
                     touch_task(db, task_id, stage="skipped")
                     _update_next_sent(db, sub.id)
                     logger.info(f"[novelty] 订阅 {sub.id} 无新增事件，按 skip 策略跳过")
+                    # t190：按订阅设置发一封"今日无新增"短通知，避免用户以为产品停了
+                    try:
+                        if getattr(sub, "skip_notice", True):
+                            from app.services.recipients import delivery_emails
+                            _to = delivery_emails(db, user)
+                            if _to:
+                                _html = (
+                                    "<div style=\"font-family:-apple-system,'Microsoft YaHei',sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1f2937;\">"
+                                    "<p style=\"font-size:15px;color:#5B7CFF;font-weight:700;margin:0 0 8px;\">一勺热点 · 今日无新增</p>"
+                                    f"<p style=\"font-size:16px;line-height:1.9;margin:0;\">「{sub.name}」今天没有出现值得单独推送的新事实，本次已跳过，不占用你的注意力。</p>"
+                                    "<p style=\"font-size:14px;color:#6b7280;margin:14px 0 0;\">有新进展时会照常推送；可在订阅设置里关闭这类提醒。</p></div>"
+                                )
+                                for _addr in _to:
+                                    send_email_sync([_addr], f"一勺热点｜{sub.name} · 今日无新增", _html)
+                    except Exception as _e:
+                        logger.warning(f"[skip] 无新增通知发送失败: {_e}")
                     return
                 news_items = _nov.flatten(_cls["repeat"]) or news_items
                 # always = 用户明确接受"照常推送"，不做周期汇总版式
@@ -229,7 +245,7 @@ def generate_report(self, subscription_id: int):
                 _fb_hint = _nov.feedback_hint(db, user.id, sub.id)
                 if _fb_hint:
                     logger.info(f"[feedback] 本期注入读者反馈提示（{len(_fb_hint)} 字）")
-                ai_html = _run_async(analyzer.analyze(news_items, user, db, sub.prompt_template_id, sub.api_key_id, keywords=keywords, feedback_hint=_fb_hint))
+                ai_html = _run_async(analyzer.analyze(news_items, user, db, sub.prompt_template_id, sub.api_key_id, keywords=keywords, feedback_hint=_fb_hint, with_decision=True))
                 analysis_quality = getattr(ai_html, "quality", {"warnings": [], "status": "unknown"})
                 # Safety: clean output again
                 ai_html = _clean_ai_output(ai_html)
@@ -286,7 +302,11 @@ def generate_report(self, subscription_id: int):
             fresh = freshness(news_items[:analysis_quality.get('material_count', 12)], previous_items)
             decision = guide_from_analysis(ai_html, analysis_quality, fresh)
             # t170：AI 报告恢复结构化决策层（速览/情绪/影响分/行动），失败自动回退引导层
-            if sub.ai_analysis:
+            _merged_decision = (analysis_quality or {}).get("decision") if sub.ai_analysis else None
+            if _merged_decision:
+                _merged_decision["_novelty"] = _novelty_stats
+                decision = _merged_decision
+            elif sub.ai_analysis:
                 try:
                     from app.services.decision_layer import build_decision_layer
                     _dl = _run_async(build_decision_layer(

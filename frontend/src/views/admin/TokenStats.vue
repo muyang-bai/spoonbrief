@@ -10,6 +10,7 @@ const loading = ref(true)
 const metric = ref('cost') // cost | calls | tokens
 const hover = ref(null)
 const quality = ref({ totals: {}, daily: [] })
+const fb = ref({ totals: {}, reasons: [], daily: [] })
 
 const rangeOptions = [
   { value: 7, label: '近 7 天' },
@@ -61,12 +62,14 @@ function fmtMoney(n) {
 async function load() {
   loading.value = true
   try {
-    const [stats, nov] = await Promise.all([
+    const [stats, nov, feedback] = await Promise.all([
       api('/admin/token-stats', { params: { days: days.value } }),
       api('/admin/metrics/novelty', { params: { days: days.value } }),
+      api('/admin/metrics/feedback', { params: { days: days.value } }),
     ])
     data.value = stats
     quality.value = nov
+    fb.value = feedback
   } catch (e) {
     t.err(e.message)
   } finally {
@@ -209,6 +212,32 @@ onMounted(load)
           </div>
         </div>
         <div class="axis"><span>{{ quality.daily.length ? quality.daily[0].date : '' }}</span><span>{{ quality.daily.length ? quality.daily[quality.daily.length - 1].date : '' }}</span></div>
+      </div>
+
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <div>
+            <h3>反馈原因分布</h3>
+            <p class="muted">「没用」的具体原因决定下一期怎么改；未归因单独计数</p>
+          </div>
+        </div>
+        <div class="kpi-grid" style="margin: 12px 0 0">
+          <div class="kpi-card"><p class="kpi-label">有用</p><p class="kpi-value">{{ fb.totals.up ?? 0 }}<span class="kpi-unit">条</span></p></div>
+          <div class="kpi-card"><p class="kpi-label">没用</p><p class="kpi-value">{{ fb.totals.down ?? 0 }}<span class="kpi-unit">条</span></p></div>
+          <div class="kpi-card"><p class="kpi-label">有用率</p><p class="kpi-value">{{ fb.totals.useful_rate ?? '—' }}<span class="kpi-unit" v-if="fb.totals.useful_rate !== null && fb.totals.useful_rate !== undefined">%</span></p></div>
+        </div>
+        <div style="margin-top: 14px">
+          <div v-for="r in fb.reasons" :key="r.key" style="margin-bottom: 10px">
+            <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text)">
+              <span>{{ r.label }}</span><span class="faint">{{ r.count }} 次</span>
+            </div>
+            <div class="model-track" style="margin-top:5px">
+              <i :style="{ width: Math.max(4, (r.count / Math.max(1, fb.totals.down)) * 100) + '%' }"></i>
+            </div>
+          </div>
+          <p v-if="!fb.reasons.length" class="muted">本期还没有「没用」反馈。</p>
+        </div>
       </div>
 
       <div class="two-grid">

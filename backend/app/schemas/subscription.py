@@ -17,6 +17,7 @@ class SubscriptionCreate(BaseModel):
     monthly_quota: Optional[int] = Field(default=None, ge=0, le=100000)
     novelty_policy: str = "digest"
     digest_window_days: int = Field(default=3, ge=1, le=7)
+    skip_notice: bool = True
 
     @field_validator("time_window")
     @classmethod
@@ -41,6 +42,7 @@ class SubscriptionUpdate(BaseModel):
     monthly_quota: Optional[int] = Field(default=None, ge=0, le=100000)
     novelty_policy: Optional[str] = None
     digest_window_days: Optional[int] = Field(default=None, ge=1, le=7)
+    skip_notice: Optional[bool] = None
 
     @field_validator("time_window")
     @classmethod
@@ -64,6 +66,7 @@ class SubscriptionOut(BaseModel):
     monthly_quota: Optional[int]
     novelty_policy: str = "digest"
     digest_window_days: int = 3
+    skip_notice: bool = True
     last_sent_at: Optional[datetime]
     next_sent_at: Optional[datetime]
     created_at: datetime

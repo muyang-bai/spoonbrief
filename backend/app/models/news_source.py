@@ -47,3 +47,7 @@ class NewsSource(Base):
     api_remaining_updated = Column(DateTime, nullable=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # t190：信源健康度（连续失败自动降权）
+    consecutive_failures = Column(Integer, default=0, nullable=False)
+    last_error = Column(String(200), nullable=True)
+    auto_disabled_at = Column(DateTime, nullable=True)

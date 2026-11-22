@@ -109,10 +109,10 @@ def ingest_sources(db: Session) -> Dict:
             for src in sources:
                 try:
                     items = await fetcher._fetch_source(src, [], 30)  # 池抓取不设关键词，30 天窗口
-                    results[src.id] = (src, items)
+                    results[src.id] = (src, items, None)
                 except Exception as e:
                     logger.warning(f"池抓取失败 [{src.name}]: {e}")
-                    results[src.id] = (src, [])
+                    results[src.id] = (src, [], str(e)[:180])
         finally:
             await fetcher.close()
         return results
@@ -124,7 +124,18 @@ def ingest_sources(db: Session) -> Dict:
         NewsEvent.last_seen_at >= datetime.utcnow() - timedelta(days=3)
     ).all()
 
-    for src_id, (src, items) in results.items():
+    for src_id, (src, items, err) in results.items():
+        # t190：连续失败 3 次自动停用并记录原因；成功即清零
+        if err or not items:
+            src.consecutive_failures = int(getattr(src, "consecutive_failures", 0) or 0) + 1
+            src.last_error = (err or "无数据返回")[:200]
+            if src.consecutive_failures >= 3 and src.is_active:
+                src.is_active = False
+                src.auto_disabled_at = datetime.utcnow()
+                logger.warning(f"[信源健康] {src.name} 连续失败 {src.consecutive_failures} 次，已自动停用：{src.last_error}")
+        else:
+            src.consecutive_failures = 0
+            src.last_error = None
         if items:
             stats["sources_used"].append(src.name)
             stats["fetched"] += len(items)

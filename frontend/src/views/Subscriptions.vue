@@ -87,7 +87,7 @@ function cronToText(expr) {
 }
 
 function blankForm() {
-  return { name: '', category_id: '综合', keywords: '', time_window: '7d', ai_analysis: true, prompt_template_id: null, api_key_id: null, monthly_quota: null, novelty_policy: 'digest', digest_window_days: 3 }
+  return { name: '', category_id: '综合', keywords: '', time_window: '7d', ai_analysis: true, prompt_template_id: null, api_key_id: null, monthly_quota: null, novelty_policy: 'digest', digest_window_days: 3, skip_notice: true }
 }
 const form = ref(blankForm())
 
@@ -195,6 +195,7 @@ function openEdit(sub) {
       monthly_quota: sub.monthly_quota ?? null,
       novelty_policy: sub.novelty_policy || 'digest',
       digest_window_days: sub.digest_window_days || 3,
+      skip_notice: sub.skip_notice !== false,
     }
     parseCron(sub.cron_expr)
   }
@@ -396,6 +397,11 @@ onMounted(load)
         </div>
         <div class="field" v-if="form.novelty_policy === 'digest'">
           <label class="label">汇总间隔（天）</label>
+        <label class="field" style="display:flex;align-items:center;gap:8px" v-if="form.novelty_policy === 'skip'">
+          <input v-model="form.skip_notice" type="checkbox" style="width:16px;height:16px" />
+          <span style="margin:0">跳过时发一封「今日无新增」短通知</span>
+        </label>
+
           <input v-model.number="form.digest_window_days" type="number" min="1" max="7" class="input" placeholder="默认 3 天" />
         </div>
 

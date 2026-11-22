@@ -574,3 +574,35 @@ async def list_ai_models(admin: User = Depends(get_admin_user), db: Session = De
         return {"models": [m.id for m in data.data], "current": cfg.get("model", "")}
     except Exception as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"获取模型列表失败（{type(e).__name__}），请核对配置")
+
+@router.get("/metrics/feedback")
+async def feedback_metrics(days: int = Query(30, ge=1, le=180),
+                           admin: User = Depends(get_admin_user),
+                           db: Session = Depends(get_db)):
+    """反馈分布：有用/没用、原因占比、按天趋势。"""
+    from datetime import datetime as _dt, timedelta as _td
+    from app.models.report_feedback import ReportFeedback
+    since = _dt.utcnow() - _td(days=days)
+    rows = db.query(ReportFeedback).filter(ReportFeedback.created_at >= since).all()
+    labels = {"direction": "方向不相关", "shallow": "太浅", "stale": "太旧或重复",
+              "evidence": "依据不足", "length": "太长或太频繁"}
+    up = sum(1 for r in rows if r.value == "up")
+    down = sum(1 for r in rows if r.value == "down")
+    reasons: dict[str, int] = {}
+    daily: dict[str, dict] = {}
+    for r in rows:
+        day = str(r.created_at)[:10]
+        slot = daily.setdefault(day, {"date": day, "up": 0, "down": 0})
+        slot[r.value] = slot.get(r.value, 0) + 1
+        if r.value == "down":
+            key = (getattr(r, "reason", None) or "unknown")
+            reasons[key] = reasons.get(key, 0) + 1
+    reason_list = [{"key": k, "label": labels.get(k, "未归因"), "count": v}
+                   for k, v in sorted(reasons.items(), key=lambda x: -x[1])]
+    return {
+        "days": days,
+        "totals": {"up": up, "down": down, "total": up + down,
+                   "useful_rate": round(up / (up + down) * 100, 1) if (up + down) else None},
+        "reasons": reason_list,
+        "daily": [daily[d] for d in sorted(daily)],
+    }
