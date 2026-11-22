@@ -5,7 +5,7 @@
 from __future__ import annotations
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, DateTime
 
 from app.database import Base
 

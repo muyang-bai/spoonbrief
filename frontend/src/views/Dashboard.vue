@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { auth, doLogout } from '../auth'
+import { auth, doLogout, setLogin } from '../auth'
 import { api } from '../api'
+import SiteFooter from '../components/SiteFooter.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -32,7 +33,7 @@ function dismissAnn(id) {
   localStorage.setItem(DISMISS_KEY, JSON.stringify([...new Set(dismissed)]))
 }
 
-onMounted(loadAnnouncements)
+onMounted(() => { loadAnnouncements(); api('/profile/').then(({id,email,nickname,role}) => setLogin(auth.token, {id,email,nickname,role})).catch(() => {}) })
 
 watch(() => route.path, () => { sideOpen.value = false })
 
@@ -43,7 +44,7 @@ const navItems = [
   { to: '/dashboard/emails', label: '收件邮箱' },
   { to: '/dashboard/profile', label: '我的画像' },
   { to: '/dashboard/prompts', label: '分析模板' },
-  { to: '/dashboard/api-keys', label: 'API Key' },
+  { to: '/dashboard/api-keys', label: '积分用量' },
 ]
 
 function logout() {
@@ -58,13 +59,13 @@ function initial() {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell user-dashboard">
     <div v-if="sideOpen" class="side-overlay" @click="sideOpen = false"></div>
     <aside class="sidebar" :class="{ open: sideOpen }">
-      <router-link to="/" class="brand">
-        <img src="/favicon.svg" alt="logo" />
-        一勺热点
-      </router-link>
+      <a href="/" class="brand" aria-label="一勺热点首页">
+        <svg class="mark" viewBox="0 0 44 44" aria-hidden="true"><g fill="none" stroke="#2868ed" stroke-width="2.4" stroke-linecap="round"><ellipse cx="15" cy="14" rx="6" ry="8" transform="rotate(36 15 14)"/><path d="M19.5 20.5 31 35"/></g><circle cx="33" cy="11" r="3" fill="#2868ed"/><circle cx="36" cy="21" r="1.6" fill="#8db8fa"/><circle cx="26" cy="5" r="1.3" fill="#b7d2fa"/></svg>
+        <span class="wordmark">一勺热点<small>SPOONBRIEF</small></span>
+      </a>
 
       <div class="nav-group-label">控制台</div>
       <router-link v-for="item in navItems" :key="item.to" :to="item.to" class="nav-item" active-class="active">
@@ -73,7 +74,7 @@ function initial() {
 
       <div class="spacer"></div>
       <router-link v-if="auth.isAdmin" to="/admin/dashboard" class="side-switch">切换到管理后台</router-link>
-      <router-link to="/" class="nav-item">返回首页</router-link>
+      <a href="/" class="nav-item">返回首页</a>
     </aside>
 
     <div class="main">
@@ -88,7 +89,7 @@ function initial() {
             <button class="avatar" style="border: none; cursor: pointer" @click="menuOpen = !menuOpen">{{ initial() }}</button>
             <div v-if="menuOpen" class="dropdown-menu" @click="menuOpen = false">
               <button @click="router.push('/dashboard/profile')">我的画像</button>
-              <button @click="router.push('/dashboard/api-keys')">API Key</button>
+              <button @click="router.push('/dashboard/api-keys')">积分用量</button>
               <button style="color: var(--danger)" @click="logout">退出登录</button>
             </div>
           </div>
@@ -106,6 +107,7 @@ function initial() {
         </div>
       </div>
       <router-view />
+      <SiteFooter />
     </div>
   </div>
 </template>
@@ -118,10 +120,10 @@ function initial() {
   margin-bottom: 16px;
 }
 .ann-card {
-  background: linear-gradient(135deg, #fff7ed, #fffbeb);
-  border: 1px solid #fed7aa;
-  border-left: 4px solid #f97316;
-  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #dde8f5;
+  border-left: 4px solid #2868ed;
+  border-radius: 16px;
   padding: 12px 14px;
 }
 .ann-head {
@@ -129,20 +131,20 @@ function initial() {
   align-items: center;
   gap: 8px;
   font-size: 15px;
-  color: #1f2937;
+  color: #18304a;
 }
 .ann-tag {
   font-size: 11px;
   font-weight: 700;
   color: #fff;
-  background: var(--primary, #f97316);
+  background: #2868ed;
   border-radius: 4px;
   padding: 1px 7px;
   letter-spacing: .08em;
 }
 .ann-pin {
   font-size: 11px;
-  background: #f97316;
+  background: #2868ed;
   color: #fff;
   border-radius: 4px;
   padding: 1px 6px;
@@ -163,7 +165,7 @@ function initial() {
 .ann-body {
   margin: 6px 0 0;
   font-size: 14px;
-  color: #4b5563;
+  color: #60748a;
   line-height: 1.7;
   white-space: pre-wrap;
 }

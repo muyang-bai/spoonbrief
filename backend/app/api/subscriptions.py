@@ -9,7 +9,6 @@ from typing import List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from loguru import logger
 
 from app.database import get_db
 from app.deps import get_current_user, check_api_quota
@@ -18,6 +17,27 @@ from app.models.subscription import Subscription
 from app.schemas.subscription import SubscriptionCreate, SubscriptionUpdate, SubscriptionOut
 
 router = APIRouter(prefix="/subscriptions", tags=["订阅"])
+
+
+def _validate_selection(db, user_id, template_id):
+    if template_id is None:
+        return
+    from app.models.prompt_template import PromptTemplate
+    from app.services.prompt_engine import template_accessible
+    if not template_accessible(db.get(PromptTemplate, template_id), user_id):
+        raise HTTPException(400, '所选模板不存在、已停用或无权使用')
+
+
+def _validate_schedule(cron, zone):
+    from croniter import croniter
+    from dateutil import tz
+    timezone = tz.gettz(zone or '')
+    if timezone is None:
+        raise HTTPException(400, '时区无效，请选择有效时区')
+    try:
+        croniter(cron, datetime.now(tz=timezone)).get_next(datetime)
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(400, '发送时间格式无效，请重新设置')
 
 
 @router.get("/", response_model=List[SubscriptionOut])
@@ -36,13 +56,10 @@ async def create_subscription(
     if count >= 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "最多只能创建3个订阅，请删除现有订阅后再添加")
 
-    # 校验 cron 表达式（无效直接拒绝，避免静默回退默认时间）
-    from croniter import croniter
-    from dateutil import tz as _tz
-    try:
-        croniter(req.cron_expr, datetime.now(tz=_tz.gettz(req.timezone or "Asia/Shanghai"))).get_next(datetime)
-    except Exception:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "发送时间格式无效，请重新设置")
+    if req.novelty_policy not in {"skip", "digest", "always"}:
+        raise HTTPException(400, "novelty_policy 只能是 skip / digest / always")
+    _validate_selection(db, user.id, req.prompt_template_id)
+    _validate_schedule(req.cron_expr, req.timezone)
 
     sub = Subscription(
         user_id=user.id,
@@ -72,17 +89,16 @@ async def update_subscription(
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "订阅不存在")
 
-    for k, v in req.model_dump(exclude_unset=True).items():
+    updates = req.model_dump(exclude_unset=True)
+    if updates.get("novelty_policy") not in (None, "skip", "digest", "always"):
+        raise HTTPException(400, "novelty_policy 只能是 skip / digest / always")
+    if 'prompt_template_id' in updates:
+        _validate_selection(db, user.id, req.prompt_template_id)
+    _validate_schedule(updates.get('cron_expr', sub.cron_expr), updates.get('timezone', sub.timezone))
+    for k, v in updates.items():
+        if v is None and k in ('name', 'cron_expr', 'timezone', 'is_active', 'ai_analysis', 'time_window'):
+            raise HTTPException(400, f'{k}不能为空')
         setattr(sub, k, v)
-
-    # 校验 cron 表达式（若本次更新了 cron）
-    if req.cron_expr is not None:
-        from croniter import croniter
-        from dateutil import tz as _tz
-        try:
-            croniter(sub.cron_expr, datetime.now(tz=_tz.gettz(sub.timezone or "Asia/Shanghai"))).get_next(datetime)
-        except Exception:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "发送时间格式无效，请重新设置")
 
     db.commit()
     db.refresh(sub)
@@ -124,17 +140,25 @@ async def trigger_now(sub_id: int, user: User = Depends(check_api_quota), db: Se
 
     try:
         from app.tasks.report_tasks import generate_report
+        from app.models.report import Report
+
+        # 记下触发前最新一份报告；本次没有新报告时如实说明，不拿旧报告冒充「已推送」
+        before = db.query(Report.id).filter(
+            Report.subscription_id == sub_id
+        ).order_by(Report.id.desc()).first()
+        before_id = before[0] if before else 0
 
         # Run synchronously in a thread pool, wait for completion
         loop = asyncio.get_event_loop()
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            result = await loop.run_in_executor(pool, generate_report.run, sub_id)
+            await loop.run_in_executor(pool, generate_report.run, sub_id)
 
-        # Check the generated report status
-        from app.models.report import Report
+        # Check the generated report status（只看本次新生成的报告）
+        db.expire_all()
         latest = db.query(Report).filter(
-            Report.subscription_id == sub_id
-        ).order_by(Report.created_at.desc()).first()
+            Report.subscription_id == sub_id,
+            Report.id > before_id,
+        ).order_by(Report.id.desc()).first()
 
         if latest:
             if latest.status == "sent":
@@ -159,6 +183,9 @@ async def trigger_now(sub_id: int, user: User = Depends(check_api_quota), db: Se
                     "status": latest.status,
                 }
         else:
-            return {"message": "报告生成任务已完成，请在历史报告中查看"}
+            return {
+                "status": "skipped",
+                "message": "这份订阅 10 分钟内刚推送过（或已暂停），本次没有重复发送",
+            }
     finally:
         _running_subscriptions.discard(sub_id)

@@ -1,0 +1,2 @@
+FROM hotmailbrief:t176-web
+COPY dist/ /app/frontend/dist/

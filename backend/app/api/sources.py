@@ -57,18 +57,16 @@ async def create_custom_source(req: UserSourceCreate, user: User = Depends(get_c
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "自定义信息源最多 10 个")
 
     # 校验 RSS 可用性（拉一次验证）
-    import feedparser, httpx
+    import feedparser
+    from app.utils.safe_fetch import fetch_public_rss
     try:
-        resp = httpx.get(req.url.strip(), headers={"User-Agent": "Mozilla/5.0"}, timeout=15, follow_redirects=True)
-        if resp.status_code != 200:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"地址无法访问（HTTP {resp.status_code}）")
-        feed = feedparser.parse(resp.content)
+        feed = feedparser.parse(fetch_public_rss(req.url.strip()))
         if not feed.entries:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "该地址不是有效的 RSS 订阅源（未解析到内容）")
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"地址校验失败：{str(e)[:80]}")
+    except Exception:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "地址校验失败，请确认地址为可访问的公开RSS")
 
     src = UserNewsSource(user_id=user.id, name=req.name.strip(), url=req.url.strip(), category=req.category or "自定义")
     db.add(src)

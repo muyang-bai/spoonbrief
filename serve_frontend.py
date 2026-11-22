@@ -53,6 +53,12 @@ async def proxy(request: web.Request) -> web.Response:
         ) as resp:
             data = await resp.read()
             out_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
+            # User-specific APIs must never reuse browser/proxy responses.
+            for key in list(out_headers):
+                if key.lower() in {"cache-control", "etag", "last-modified", "expires"}:
+                    out_headers.pop(key)
+            out_headers.update(NO_CACHE)
+            out_headers["Vary"] = "Authorization"
             return web.Response(status=resp.status, body=data, headers=out_headers)
 
 
@@ -66,9 +72,15 @@ async def static_handler(request: web.Request) -> web.Response:
         if os.path.isfile(prerendered):
             return web.FileResponse(prerendered, headers=NO_CACHE)
 
+    if rel == "app-version.json":
+        return web.json_response({"version": "t160-20261122-email"}, headers=NO_CACHE)
+    # /index.html used to bypass the t149 exact / route and expose the old SPA Landing.
+    if rel == "index.html":
+        raise web.HTTPFound("/", headers=NO_CACHE)
     path = os.path.normpath(os.path.join(ROOT, rel))
     if rel and path.startswith(os.path.abspath(ROOT)) and os.path.isfile(path):
-        return web.FileResponse(path, headers=NO_CACHE)
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"} if rel.startswith("assets/") and re.search(r"-[A-Za-z0-9_-]{8}\.(js|css)$", rel) else NO_CACHE
+        return web.FileResponse(path, headers=headers)
     return web.FileResponse(os.path.join(ROOT, "index.html"), headers=NO_CACHE)
 
 

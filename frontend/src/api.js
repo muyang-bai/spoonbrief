@@ -28,7 +28,7 @@ export function logout() {
   setUser(null)
 }
 
-export async function api(path, { method = 'GET', body, params, timeout = 30000 } = {}) {
+export async function api(path, { method = 'GET', body, params, timeout = 30000, headers: extraHeaders = {} } = {}) {
   let url = API_BASE + path
   if (params) {
     const qs = new URLSearchParams()
@@ -39,7 +39,7 @@ export async function api(path, { method = 'GET', body, params, timeout = 30000 
     if (s) url += '?' + s
   }
 
-  const headers = {}
+  const headers = { ...extraHeaders }
   if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json'
   const token = getToken()
   if (token) headers['Authorization'] = 'Bearer ' + token
@@ -51,6 +51,7 @@ export async function api(path, { method = 'GET', body, params, timeout = 30000 
   try {
     res = await fetch(url, {
       method,
+      cache: 'no-store',
       headers,
       body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
@@ -73,11 +74,14 @@ export async function api(path, { method = 'GET', body, params, timeout = 30000 
     const detail = typeof data === 'object' && data !== null
       ? (data.detail || data.message || `请求失败 (${res.status})`)
       : `请求失败 (${res.status})`
+    const message = Array.isArray(detail) ? detail.map(item => `${(item.loc || []).slice(1).join('.')}: ${item.msg || '输入无效'}`).join('；') : String(detail)
     if (res.status === 401 && !path.startsWith('/auth/')) {
       logout()
       if (!location.pathname.startsWith('/login')) location.href = '/login'
     }
-    throw new Error(detail)
+    const error = new Error(message)
+    error.status = res.status
+    throw error
   }
   return data
 }

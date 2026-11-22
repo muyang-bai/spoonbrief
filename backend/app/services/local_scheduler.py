@@ -167,7 +167,6 @@ def recover_stale_runs():
 
 async def _dispatch_report(subscription_id: int):
     """派发报告生成（线程池隔离，不阻塞事件循环）"""
-    global _running_subscriptions
     if subscription_id in _running_subscriptions:
         logger.warning(f"[调度器] 订阅 {subscription_id} 仍在处理中，跳过重复派发")
         return

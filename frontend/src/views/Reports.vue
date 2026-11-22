@@ -1,14 +1,25 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { api } from '../api'
+import { api, getToken } from '../api'
 import { t } from '../toast'
 import Modal from '../components/Modal.vue'
+import { confirmDialog } from '../confirm'
 
 const reports = ref([])
 const loading = ref(true)
 const detail = ref(null)
 const showDetail = ref(false)
+const viewMode = ref('email')       // email = 邮件版式（与推送一致）；raw = 原文数据
+const emailHtml = ref('')
+const emailLoading = ref(false)
 const cleaning = ref(false)
+const selected = ref([])
+const allChecked = computed(() => reports.value.length > 0 && selected.value.length === reports.value.length)
+function toggleAll(e) { selected.value = e.target.checked ? reports.value.map((r) => r.id) : [] }
+function toggleOne(id) {
+  const i = selected.value.indexOf(id)
+  i >= 0 ? selected.value.splice(i, 1) : selected.value.push(id)
+}
 
 const statusMap = {
   sent: { label: '已发送', cls: 'badge-green' },
@@ -20,26 +31,14 @@ const statusMap = {
 
 // 清洗 AI 生成的 HTML：去掉 <style>/<script> 与内联样式，统一走本站样式，避免黑底等问题
 function sanitizeHtml(html) {
-  let s = String(html || '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<link[^>]*>/gi, '')
-    .replace(/<meta[^>]*>/gi, '')
-    .replace(/<!DOCTYPE[^>]*>/gi, '')
-    .replace(/<html[\s\S]*?>/gi, '')
-    .replace(/<\/html>/gi, '')
-    .replace(/<head[\s\S]*?<\/head>/gi, '')
-    .replace(/<body[^>]*>/gi, '')
-    .replace(/<\/body>/gi, '')
-  // 剥离所有标签属性（仅保留 <a> 的 href，且仅限 http(s)）
-  s = s.replace(/<a\s+([^>]*)>/gi, (m, attrs) => {
-    const href = (attrs.match(/href=["'](https?:\/\/[^"']+)["']/i) || [])[1]
-    return href ? `<a href="${href}" target="_blank" rel="noopener">` : '<a>'
-  })
-  s = s.replace(/<(\/?)(\w+)([^>]*)>/g, '<$1$2>')
-  // 若 AI 仍输出了整页样式（截断产物），判定无效
-  if (/<style|<head/i.test(s)) return ''
-  return s
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html')
+  for (const node of doc.querySelectorAll('script,style,head,iframe,object,embed,img,svg,math,form,video,audio')) node.remove()
+  const allowed = new Set(['P','DIV','H1','H2','H3','H4','H5','H6','UL','OL','LI','STRONG','EM','B','I','SPAN','BR','BLOCKQUOTE'])
+  for (const node of [...doc.body.querySelectorAll('*')]) {
+    if (!allowed.has(node.tagName)) node.replaceWith(...node.childNodes)
+    else for (const attr of [...node.attributes]) node.removeAttribute(attr.name)
+  }
+  return doc.body.innerHTML
 }
 
 const safeHtml = computed(() => (detail.value ? sanitizeHtml(detail.value.ai_analysis_html) : ''))
@@ -73,13 +72,31 @@ async function openDetail(r) {
   try {
     detail.value = await api(`/reports/${r.id}`)
     showDetail.value = true
+    viewMode.value = 'email'
+    loadEmailHtml(r.id)
   } catch (e) {
     t.err(e.message)
   }
 }
 
+// 邮件版式：直接取后端用同一套邮件模板渲染的 HTML（与用户收到的邮件完全一致）
+async function loadEmailHtml(id) {
+  emailLoading.value = true
+  emailHtml.value = ''
+  try {
+    const res = await fetch(`/api/v1/reports/${id}/email-html`, {
+      headers: { Authorization: 'Bearer ' + getToken() },
+    })
+    emailHtml.value = res.ok ? await res.text() : ''
+  } catch {
+    emailHtml.value = ''
+  } finally {
+    emailLoading.value = false
+  }
+}
+
 async function remove(r) {
-  if (!confirm('确定删除这份报告吗？')) return
+  if (!(await confirmDialog({ title: '删除这份报告？', text: `「${r.subject || '未命名报告'}」删除后不可恢复。` }))) return
   try {
     await api(`/reports/${r.id}`, { method: 'DELETE' })
     t.ok('报告已删除')
@@ -89,8 +106,22 @@ async function remove(r) {
   }
 }
 
+async function removeSelected() {
+  const ids = [...selected.value]
+  if (!ids.length) return
+  if (!(await confirmDialog({ title: '批量删除报告？', text: `将删除选中的 ${ids.length} 份报告，删除后不可恢复。` }))) return
+  try {
+    const res = await api('/reports/batch-delete', { method: 'POST', body: { ids } })
+    t.ok(res.message || `已删除 ${res.deleted} 份`)
+    selected.value = []
+    await load()
+  } catch (e) {
+    t.err(e.message)
+  }
+}
+
 async function cleanup() {
-  if (!confirm('将只保留最近 100 条报告，更早的会被清理，确定吗？')) return
+  if (!(await confirmDialog({ title: '清理旧报告？', text: '将只保留最近 100 条报告，更早的会被清理。' }))) return
   cleaning.value = true
   try {
     const res = await api('/reports/cleanup', { method: 'POST' })
@@ -114,9 +145,14 @@ onMounted(load)
   <div>
     <div class="page-actions">
       <p class="muted">你所有的 AI 生成简报，最多保留最近 100 条</p>
-      <button class="btn btn-outline btn-sm" :disabled="cleaning" @click="cleanup">
-        <span v-if="cleaning" class="spinner spinner-dark"></span> 清理旧报告
-      </button>
+      <div class="actions-right">
+        <button v-if="selected.length" class="btn btn-sm" style="color: #fff; background: var(--danger)" @click="removeSelected">
+          删除选中（{{ selected.length }}）
+        </button>
+        <button class="btn btn-outline btn-sm" :disabled="cleaning" @click="cleanup">
+          <span v-if="cleaning" class="spinner spinner-dark"></span> 清理旧报告
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading-center">加载中…</div>
@@ -131,6 +167,7 @@ onMounted(load)
       <table class="table">
         <thead>
           <tr>
+            <th style="width: 44px"><input type="checkbox" :checked="allChecked" aria-label="全选" @change="toggleAll" /></th>
             <th>主题</th>
             <th>状态</th>
             <th>生成时间</th>
@@ -140,6 +177,7 @@ onMounted(load)
         </thead>
         <tbody>
           <tr v-for="r in reports" :key="r.id">
+            <td><input type="checkbox" :checked="selected.includes(r.id)" :aria-label="'选择 ' + (r.subject || r.id)" @change="toggleOne(r.id)" /></td>
             <td>
               <span style="font-weight: 600; cursor: pointer" @click="openDetail(r)">{{ r.subject || '未命名报告' }}</span>
               <span v-if="r.error_message" class="badge badge-red" style="margin-left: 8px">有错误</span>
@@ -168,6 +206,26 @@ onMounted(load)
           <strong>错误信息：</strong>{{ detail.error_message }}
         </p>
 
+        <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap">
+          <button class="btn btn-sm" :class="viewMode === 'email' ? 'btn-primary' : 'btn-outline'" @click="viewMode = 'email'">邮件版式</button>
+          <button class="btn btn-sm" :class="viewMode === 'raw' ? 'btn-primary' : 'btn-outline'" @click="viewMode = 'raw'">原文数据</button>
+        </div>
+
+        <!-- 邮件版式：与用户收到的推送邮件完全一致（同一套模板渲染） -->
+        <template v-if="viewMode === 'email'">
+          <div v-if="emailLoading" class="loading-center">加载邮件版式…</div>
+          <iframe
+            v-else-if="emailHtml"
+            :srcdoc="emailHtml"
+            title="邮件版式预览"
+            style="width: 100%; height: 72vh; border: 1px solid var(--border); border-radius: 14px; background: #f9fafb"
+          ></iframe>
+          <div v-else class="empty" style="padding: 24px">
+            <p class="muted">该报告暂无可预览的邮件版式（历史报告可能未保存展示数据）</p>
+          </div>
+        </template>
+
+        <template v-else>
         <!-- AI 全局分析 -->
         <h4 style="font-size: 15px; margin: 6px 0 12px; color: var(--primary)">AI 全局分析</h4>
         <div v-if="safeHtml && safeHtml.trim()" class="report-html" v-html="safeHtml"></div>
@@ -180,14 +238,14 @@ onMounted(load)
           <hr class="sep" />
           <template v-if="relatedNews.length">
             <h4 style="font-size: 15px; margin: 6px 0 12px; color: var(--primary)">与你相关</h4>
-            <div v-for="(n, i) in relatedNews.slice(0, 20)" :key="'r' + i" class="news-item-mini" style="background: #fff7ed; border-color: #fed7aa">
+            <div v-for="(n, i) in relatedNews.slice(0, 20)" :key="'r' + i" class="news-item-mini" style="background: #fff7ed; border-color: #c7d2fe">
               <p class="t">【{{ i + 1 }}】{{ n.title || '无标题' }}</p>
               <p class="m" v-if="n.summary">{{ n.summary.slice(0, 160) }}{{ n.summary.length > 160 ? '…' : '' }}</p>
               <p class="faint" style="margin-top: 4px">
                 来源：{{ n.source || '未知' }}
                 <a v-if="n.link && n.link !== '#'" :href="n.link" target="_blank" rel="noopener">原文链接</a>
                 <span v-if="n.credibility"> · 可信度 {{ n.credibility }}/10</span>
-                <span v-if="n._cross_validated"> · {{ n._source_count }} 源交叉验证</span>
+                <!-- t110：交叉验证口径修正中，暂不展示 -->
                 <span v-if="n.published"> · {{ n.published }}</span>
               </p>
             </div>
@@ -201,11 +259,12 @@ onMounted(load)
                 来源：{{ n.source || '未知' }}
                 <a v-if="n.link && n.link !== '#'" :href="n.link" target="_blank" rel="noopener">原文链接</a>
                 <span v-if="n.credibility"> · 可信度 {{ n.credibility }}/10</span>
-                <span v-if="n._cross_validated"> · {{ n._source_count }} 源交叉验证</span>
+                <!-- t110：交叉验证口径修正中，暂不展示 -->
                 <span v-if="n.published"> · {{ n.published }}</span>
               </p>
             </div>
           </template>
+        </template>
         </template>
       </div>
       <div class="modal-actions">

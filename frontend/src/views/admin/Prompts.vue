@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 import { t } from '../../toast'
+import { confirmDialog } from '../../confirm'
 import Modal from '../../components/Modal.vue'
 
 const prompts = ref([])
@@ -117,7 +118,7 @@ async function save() {
 }
 
 async function remove(p) {
-  if (!confirm('确认删除此模板？')) return
+  if (!(await confirmDialog({ text: '确认删除此模板？' }))) return
   try {
     await api(`/admin/prompts/${p.id}`, { method: 'DELETE' })
     t.ok('模板已删除')

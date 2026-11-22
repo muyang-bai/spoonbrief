@@ -14,7 +14,7 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("hb_users.id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(50), nullable=False)
     encrypted_key = Column(String(500), nullable=False)
     base_url = Column(String(300), nullable=True)

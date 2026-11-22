@@ -2,13 +2,10 @@
 信息池：常驻抓取入库 + 简报从池抽取（P2 核心）
 """
 from __future__ import annotations
-import asyncio
 import hashlib
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from datetime import datetime
 
 from sqlalchemy import Column, Integer, String, DateTime, Text
-from sqlalchemy.orm import Session
 
 from app.database import Base
 

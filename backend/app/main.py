@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware, AntiBotMiddleware
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware, AntiBotMiddleware, ResponseCacheMiddleware
 
 from app.config import get_settings
 from app.api.router import api_router
@@ -46,6 +46,7 @@ app = FastAPI(
 )
 
 # Security middlewares (order matters)
+app.add_middleware(ResponseCacheMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AntiBotMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
@@ -69,49 +70,27 @@ async def health_check():
 
 @app.get("/api/v1/public/demo-report")
 async def public_demo_report():
-    """公开演示报告"""
-    from app.database import SessionLocal
-    from app.models.report import Report
-    from app.models.news_source import NewsSource
-    db = SessionLocal()
-    try:
-        latest = db.query(Report).filter(
-            Report.status == "sent", Report.ai_analysis_html.isnot(None)
-        ).order_by(Report.created_at.desc()).first()
-        if not latest:
-            return {"found": False, "subject": "", "ai_html": "", "news_items": [], "sources": []}
-
-        news = []
-        if latest.raw_news_json:
-            import json
-            news = json.loads(latest.raw_news_json)[:5]
-
-        sources = db.query(NewsSource).filter(NewsSource.is_active == True).all()
-
-        return {
-            "found": True,
-            "subject": latest.subject or "",
-            "ai_html": latest.ai_analysis_html or "",
-            "news_items": news,
-            "sources": [s.name for s in sources],
-            "created_at": latest.created_at.replace(tzinfo=_dt.timezone.utc).isoformat() if latest.created_at else "",
-        }
-    finally:
-        db.close()
+    """No opt-in public report collection exists: never expose a private user's analysis."""
+    return {"found": False, "subject": "", "ai_html": "", "news_items": [], "sources": [],
+            "message": "为保护个人资料，公开演示不使用用户私有简报。"}
 
 
 @app.get("/api/v1/public/icp")
 async def public_icp():
     """公开备案/合规文本"""
     from app.database import SessionLocal
-    from app.models.compliance_text import ComplianceText
+    from app.utils import compliance as _compliance
     db = SessionLocal()
     try:
-        texts = {c.key: c.content for c in db.query(ComplianceText).all()}
+        texts = _compliance.load(db)
         return {
-            "icp_record": texts.get("icp_record", ""),
-            "privacy_policy": texts.get("privacy_policy", ""),
-            "disclaimer": texts.get("disclaimer", ""),
+            "icp_record": texts["icp_record"],
+            "icp_url": _compliance.ICP_URL,
+            "privacy_policy": texts["privacy_policy"],
+            "privacy_url": _compliance.PRIVACY_PATH,
+            "unsubscribe_notice": texts["unsubscribe_notice"],
+            "unsubscribe_help_url": _compliance.UNSUBSCRIBE_HELP_PATH,
+            "disclaimer": texts["disclaimer"],
         }
     finally:
         db.close()
@@ -138,3 +117,9 @@ async def public_ai_default():
                 "enabled": enabled, "has_key": has_key}
     finally:
         db.close()
+
+# ── 内部管理接口（AiLifeOS 统一后台通过 HMAC 调用）──
+from app.api.internal_admin import router as internal_admin_router
+from app.api.integration_api import router as integration_api_router  # noqa: E402
+app.include_router(internal_admin_router)
+app.include_router(integration_api_router)

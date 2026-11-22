@@ -1,0 +1,7 @@
+services:
+  backend:
+    image: hotmailbrief:t182-api
+  celery-worker:
+    image: hotmailbrief:t182-worker
+  celery-beat:
+    image: hotmailbrief:t182-worker

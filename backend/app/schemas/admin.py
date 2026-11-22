@@ -15,6 +15,9 @@ class AdminUserOut(BaseModel):
     api_quota_total: int = 60
     api_quota_used: int = 0
     api_quota_reset_at: Optional[datetime] = None
+    permission: str = "member"
+    member_tier: Optional[str] = None
+    member_tier_label: str = "未同步"
     class Config:
         from_attributes = True
 
@@ -112,4 +115,11 @@ class DashboardStats(BaseModel):
     category_distribution: List[dict]
     user_growth: List[dict]
     email_delivery_rate: float
+    linked_users: int = 0
+    reports_24h: int = 0
+    failed_24h: int = 0
+    tokens_24h: int = 0
+    cost_yuan_24h: float = 0.0
+    token_model_24h: Optional[str] = None
+    subscription_topics: List[dict] = []
 

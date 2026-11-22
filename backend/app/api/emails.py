@@ -15,23 +15,22 @@ from app.models.email_address import EmailAddress
 from app.models.email_verification import EmailVerificationCode
 from app.schemas.user import EmailAddressCreate, EmailAddressOut
 
+from app.services.recipients import list_effective_emails, verification_target, normalize_email
+
 router = APIRouter(prefix="/emails", tags=["收件邮箱"])
 
 @router.get("/", response_model=List[EmailAddressOut])
 async def list_emails(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(EmailAddress).filter(EmailAddress.user_id == user.id).all()
+    return list_effective_emails(db,user)
 
 @router.post("/", response_model=EmailAddressOut, status_code=201)
 async def add_email(req: EmailAddressCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    count = db.query(EmailAddress).filter(EmailAddress.user_id == user.id).count()
+    count = len(list_effective_emails(db,user))
     if count >= 3:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "最多只能添加3个收件邮箱，请删除不需要的邮箱后再添加")
 
-    existing = db.query(EmailAddress).filter(
-        EmailAddress.user_id == user.id,
-        EmailAddress.email == req.email,
-    ).first()
-    if existing:
+    existing = db.query(EmailAddress).filter(EmailAddress.user_id == user.id).all()
+    if normalize_email(req.email) == normalize_email(user.email) or any(normalize_email(e.email) == normalize_email(req.email) for e in existing):
         raise HTTPException(status.HTTP_409_CONFLICT, "该邮箱已被添加，请勿重复添加")
 
     email = EmailAddress(user_id=user.id, email=req.email, is_primary=False, is_verified=False)
@@ -42,10 +41,7 @@ async def add_email(req: EmailAddressCreate, user: User = Depends(get_current_us
 
 @router.post("/{email_id}/send-verify")
 async def send_verify_code(email_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = db.query(EmailAddress).filter(
-        EmailAddress.id == email_id,
-        EmailAddress.user_id == user.id,
-    ).first()
+    email = verification_target(db,user,email_id)
     if not email:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "收件邮箱不存在，请刷新页面后重试")
     if email.is_verified:
@@ -80,27 +76,32 @@ async def send_verify_code(email_id: int, user: User = Depends(get_current_user)
 
     from app.tasks.email_tasks import send_verification_email
     from app.utils.task_runner import try_celery_delay
-    try_celery_delay(send_verification_email, email.email, code)
-    return {"message": "验证码已发送，请查收（本地开发请查看控制台输出）"}
+    try_celery_delay(send_verification_email, email.email, code, "验证收件邮箱")
+    return {"message": "验证码已提交发送，请查收；未收到请稍后重试"}
 
 @router.post("/{email_id}/verify")
 async def verify_email(email_id: int, code: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = db.query(EmailAddress).filter(
-        EmailAddress.id == email_id,
-        EmailAddress.user_id == user.id,
-    ).first()
+    email = verification_target(db,user,email_id)
     if not email:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "收件邮箱不存在")
 
     record = db.query(EmailVerificationCode).filter(
         EmailVerificationCode.email == email.email,
         EmailVerificationCode.code == code,
+        EmailVerificationCode.purpose == "email_verify",
         EmailVerificationCode.is_used == False,
         EmailVerificationCode.expires_at > datetime.utcnow(),
     ).first()
     if not record:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "验证码无效或已过期，请重新发送")
 
+    if email_id == 0:
+        # Only a successfully verified, explicit user action may create this row.
+        email = db.query(EmailAddress).filter(EmailAddress.user_id == user.id,
+                                              EmailAddress.email == user.email).first()
+        if email is None:
+            email = EmailAddress(user_id=user.id,email=user.email,is_primary=True,is_verified=False)
+            db.add(email)
     email.is_verified = True
     email.verified_at = datetime.utcnow()
     record.is_used = True
@@ -115,7 +116,7 @@ async def delete_email(email_id: int, user: User = Depends(get_current_user), db
     ).first()
     if not email:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "收件邮箱不存在，可能已被删除")
-    if email.is_primary:
+    if email.is_primary or normalize_email(email.email) == normalize_email(user.email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "主邮箱不可删除（注册邮箱作为账号标识，无法移除）")
     db.delete(email)
     db.commit()

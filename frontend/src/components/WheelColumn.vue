@@ -10,7 +10,6 @@ const emit = defineEmits(['update:modelValue'])
 
 const scroller = ref(null)
 const ITEM_H = 40          // 每项高度
-const VIEW_H = 120         // 可视高度：恰好显示 3 项
 const N = props.items.length
 const TRIPLED = [...props.items, ...props.items, ...props.items]
 
@@ -139,10 +138,10 @@ watch(() => props.modelValue, () => {
   border-radius: 10px;
   background: linear-gradient(
     180deg,
-    rgba(249, 115, 22, 0.04) 0%,
-    rgba(249, 115, 22, 0.1) 33.3%,
-    rgba(249, 115, 22, 0.1) 66.6%,
-    rgba(249, 115, 22, 0.04) 100%
+    rgba(77, 107, 254, 0.04) 0%,
+    rgba(77, 107, 254, 0.1) 33.3%,
+    rgba(77, 107, 254, 0.1) 66.6%,
+    rgba(77, 107, 254, 0.04) 100%
   );
 }
 .wheel-col::-webkit-scrollbar { display: none; }

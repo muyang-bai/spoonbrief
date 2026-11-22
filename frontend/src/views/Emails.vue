@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
 import { t } from '../toast'
+import { confirmDialog } from '../confirm'
 import Modal from '../components/Modal.vue'
 
 const emails = ref([])
@@ -22,7 +23,9 @@ const verifying = ref(false)
 async function load() {
   loading.value = true
   try {
-    emails.value = await api('/emails/')
+    emails.value = []
+    const saved = await api('/emails/')
+    emails.value = saved
   } catch (e) {
     t.err(e.message)
   } finally {
@@ -56,7 +59,7 @@ async function sendCode(em) {
   sendingId.value = em.id
   try {
     const res = await api(`/emails/${em.id}/send-verify`, { method: 'POST' })
-    t.ok(res.message || '验证码已发送，请查收')
+    t.ok(res.message || '验证码已提交发送，请查收')
   } catch (e) {
     t.err(e.message)
   } finally {
@@ -91,7 +94,7 @@ async function submitVerify() {
 }
 
 async function removeEmail(em) {
-  if (!confirm(`确定删除收件邮箱「${em.email}」吗？`)) return
+  if (!(await confirmDialog({ text: `确定删除收件邮箱「${em.email}」吗？` }))) return
   deletingId.value = em.id
   try {
     const res = await api(`/emails/${em.id}`, { method: 'DELETE' })
@@ -110,7 +113,7 @@ onMounted(load)
 <template>
   <div>
     <div class="page-actions">
-      <p class="muted">管理情报简报的接收邮箱（最多 3 个）</p>
+      <div><p class="muted">管理情报简报的接收邮箱（最多 3 个）</p><p class="muted">主收件邮箱使用当前账号邮箱，验证后接收简报；额外邮箱保持独立。</p></div>
       <button class="btn btn-primary" :disabled="emails.length >= 3" @click="openAdd">＋ 添加邮箱</button>
     </div>
 
@@ -136,7 +139,7 @@ onMounted(load)
           <tr v-for="em in emails" :key="em.id">
             <td>
               <span style="font-weight: 600">{{ em.email }}</span>
-              <p v-if="em.is_primary" class="faint">主邮箱（不可删除）</p>
+              <p v-if="em.is_primary" class="faint">账号邮箱 · 主收件地址</p>
             </td>
             <td>
               <span v-if="em.is_primary" class="badge" style="margin-right: 6px">主邮箱</span>
@@ -150,7 +153,7 @@ onMounted(load)
                 </button>
                 <button class="btn btn-teal btn-sm" @click="openVerify(em)">验证邮箱</button>
               </template>
-              <button class="btn btn-sm" style="color: var(--danger)" :disabled="deletingId === em.id" @click="removeEmail(em)">
+              <button v-if="!em.is_primary" class="btn btn-sm" style="color: var(--danger)" :disabled="deletingId === em.id" @click="removeEmail(em)">
                 <span v-if="deletingId === em.id" class="spinner spinner-dark"></span> 删除
               </button>
             </td>

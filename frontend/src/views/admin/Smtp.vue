@@ -101,7 +101,7 @@ onMounted(load)
         </label>
         <label class="field">
           <span>发件邮箱</span>
-          <input v-model="form.from_email" class="input" placeholder="noreply@example.com" />
+          <input v-model="form.from_email" class="input" placeholder="填写发件邮箱" />
         </label>
         <label class="field">
           <span>发件人名称</span>

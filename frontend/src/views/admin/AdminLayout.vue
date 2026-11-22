@@ -15,6 +15,7 @@ const adminItems = [
   { to: '/admin/users', label: '用户管理' },
   { to: '/admin/smtp', label: 'SMTP 邮件' },
   { to: '/admin/ai-config', label: 'AI 接口' },
+  { to: '/admin/token-stats', label: 'AI 用量' },
   { to: '/admin/sources', label: '信息源管理' },
   { to: '/admin/prompts', label: '官方模板' },
   { to: '/admin/announcements', label: '公告管理' },
@@ -37,10 +38,10 @@ function initial() {
   <div class="app-shell">
     <div v-if="sideOpen" class="side-overlay" @click="sideOpen = false"></div>
     <aside class="sidebar" :class="{ open: sideOpen }">
-      <router-link to="/" class="brand">
-        <img src="/favicon.svg" alt="logo" />
-        一勺热点
-      </router-link>
+      <a href="/" class="brand" aria-label="一勺热点首页">
+        <svg class="mark" viewBox="0 0 44 44" aria-hidden="true"><g fill="none" stroke="#2868ed" stroke-width="2.4" stroke-linecap="round"><ellipse cx="15" cy="14" rx="6" ry="8" transform="rotate(36 15 14)"/><path d="M19.5 20.5 31 35"/></g><circle cx="33" cy="11" r="3" fill="#2868ed"/><circle cx="36" cy="21" r="1.6" fill="#8db8fa"/><circle cx="26" cy="5" r="1.3" fill="#b7d2fa"/></svg>
+        <span class="wordmark">一勺热点<small>SPOONBRIEF</small></span>
+      </a>
 
       <div class="nav-group-label">管理后台</div>
       <router-link v-for="item in adminItems" :key="item.to" :to="item.to" class="nav-item" active-class="active">
@@ -49,7 +50,7 @@ function initial() {
 
       <div class="spacer"></div>
       <router-link to="/dashboard/subscriptions" class="side-switch">切换到控制台</router-link>
-      <router-link to="/" class="nav-item">返回首页</router-link>
+      <a href="/" class="nav-item">返回首页</a>
     </aside>
 
     <div class="main">

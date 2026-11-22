@@ -16,10 +16,19 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 
-# 系统依赖（psycopg2 构建 + 时区数据）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev tzdata curl \
-    && rm -rf /var/lib/apt/lists/*
+# 系统依赖（时区数据 + 健康检查用 curl；psycopg2/asyncpg 均有预编译 wheel，无需 build-essential）
+# 国内服务器走清华 Debian 镜像，避免 apt 卡在 deb.debian.org
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+    fi; \
+    apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30; \
+    apt-get install -y --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+        tzdata curl; \
+    rm -rf /var/lib/apt/lists/*
 
 # 依赖（国内服务器走清华 PyPI 镜像）
 COPY backend/requirements.txt backend/requirements-prod.txt ./

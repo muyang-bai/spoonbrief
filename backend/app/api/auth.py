@@ -20,7 +20,6 @@ from app.schemas.auth import (
     TokenResponse, UserInfo,
 )
 from app.utils.security import hash_password, verify_password, create_access_token
-from app.utils.captcha import verify_captcha
 from app.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -67,7 +66,7 @@ async def send_verification_code(req: SendCodeRequest, db: Session = Depends(get
     from app.utils.task_runner import try_celery_delay
     try_celery_delay(send_verification_email, req.email, code)
 
-    return {"message": "验证码已发送，请查收邮箱（5 分钟内有效）。本地开发模式下请查看后端控制台输出。"}
+    return {"message": "验证码已提交发送，请查收邮箱（5 分钟内有效）。本地开发模式下请查看后端控制台输出。"}
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -204,7 +203,7 @@ async def send_reset_code(req: SendResetCodeRequest, db: Session = Depends(get_d
     from app.utils.task_runner import try_celery_delay
     try_celery_delay(send_verification_email, req.email, code)
 
-    return {"message": "重置验证码已发送，请查收邮箱（5 分钟内有效）"}
+    return {"message": "重置验证码已提交发送，请查收邮箱（5 分钟内有效）"}
 
 
 @router.post("/reset-password")
@@ -253,3 +252,9 @@ async def change_password(
     user.force_change_password = False
     db.commit()
     return {"message": "密码修改成功"}
+
+@router.get("/me/usage")
+async def my_usage(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """同一账户积分账本；处理中单独显示，不冒充已成功消费。"""
+    from app.services.credits import balance
+    return balance(db, current_user)

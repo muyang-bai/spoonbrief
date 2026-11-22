@@ -2,7 +2,8 @@
 安全中间件：限流 + 安全头 + 反爬
 """
 from __future__ import annotations
-import time, hashlib
+import time
+import hashlib
 from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -95,3 +96,100 @@ class AntiBotMiddleware(BaseHTTPMiddleware):
                 return Response(status_code=404)
 
         return await call_next(request)
+
+class ResponseCacheMiddleware(BaseHTTPMiddleware):
+    """登录态 GET 接口 30 秒缓存（t175）。
+
+    多 worker 下用 Redis 共享，键里带 Authorization 哈希与全局版本号：
+    - 任一写请求使版本号 +1，旧缓存整体失效（写后读一致）；
+    - Redis 不可用时自动退化为进程内缓存，不影响可用性；
+    - 响应头 X-Cache: HIT/MISS 便于验证。
+    """
+
+    PREFIXES = (
+        "/api/v1/subscriptions", "/api/v1/reports", "/api/v1/sources",
+        "/api/v1/emails", "/api/v1/profile", "/api/v1/announcements",
+        "/api/v1/prompts",
+    )
+    TTL = 30
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._redis = None
+        self._local = {}
+
+    def _client(self):
+        if self._redis is not None:
+            return self._redis
+        try:
+            import redis
+            from app.config import get_settings
+            self._redis = redis.Redis.from_url(get_settings().redis_url, decode_responses=False, socket_timeout=1)
+            self._redis.ping()
+        except Exception:
+            self._redis = False
+        return self._redis
+
+    @staticmethod
+    def _key(auth: str, path: str, query: str) -> str:
+        auth_hash = hashlib.sha256(auth.encode()).hexdigest()[:16]
+        return f"api:cache:{path}:{query}:{auth_hash}"
+
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+        if not path.startswith(self.PREFIXES):
+            return await call_next(request)
+
+        r = self._client()
+        if request.method != "GET":
+            if r:
+                try:
+                    r.incr("api:cache:version")
+                except Exception:
+                    pass
+            self._local.clear()
+            return await call_next(request)
+
+        auth = request.headers.get("authorization") or ""
+        if not auth:
+            return await call_next(request)
+
+        key = self._key(auth, path, request.url.query)
+        if r:
+            try:
+                ver = r.get("api:cache:version") or b"0"
+                key = f"{key}:{ver.decode() if isinstance(ver, bytes) else ver}"
+                hit = r.get(key)
+                if hit:
+                    import base64, json as _json
+                    env = _json.loads(hit)
+                    return Response(content=base64.b64decode(env["b"]), status_code=200,
+                                    media_type=env.get("m") or "application/json",
+                                    headers={"X-Cache": "HIT"})
+            except Exception:
+                pass
+        else:
+            entry = self._local.get(key)
+            if entry and time.time() - entry[0] < self.TTL:
+                return Response(content=entry[1], status_code=200, media_type=entry[2] or "application/json",
+                                headers={"X-Cache": "HIT"})
+
+        response = await call_next(request)
+        if response.status_code != 200:
+            return response
+
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        media = response.media_type or "application/json"
+        if r:
+            try:
+                import base64, json as _json
+                r.setex(key, self.TTL, _json.dumps({"b": base64.b64encode(body).decode(), "m": media}))
+            except Exception:
+                pass
+        else:
+            if len(self._local) > 500:
+                self._local.clear()
+            self._local[key] = (time.time(), body, media)
+        return Response(content=body, status_code=200, media_type=media, headers={"X-Cache": "MISS"})

@@ -33,7 +33,7 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("hb_users.id", ondelete="CASCADE"), nullable=False)
 # ---
     name = Column(String(100), nullable=False)
     # 信息类别（系统预置 ID 或 "custom"）
@@ -58,6 +58,9 @@ class Subscription(Base):
     api_key_id = Column(Integer, ForeignKey("api_keys.id"), nullable=True)
     # 订阅级月度推送上限（NULL=不限；超出自动跳过并通知，防"忘记关闭白白消耗"）
     monthly_quota = Column(Integer, nullable=True)
+    # 无重要更新时的策略：skip=跳过不发；digest=周期汇总；always=照常推送（t162）
+    novelty_policy = Column(String(16), default="digest", nullable=False)
+    digest_window_days = Column(Integer, default=3, nullable=False)
 # ---
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

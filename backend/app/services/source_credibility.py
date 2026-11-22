@@ -3,8 +3,6 @@
 """
 
 from __future__ import annotations
-from typing import List, Dict, Set, Tuple
-from loguru import logger
 
 # 来源域名/名称 → 可信度权重（1-10）
 # 分级标准：官方喉舌(10) > 权威媒体(9) > 一线媒体(8) > 专业垂直媒体(7) >
@@ -14,7 +12,7 @@ SOURCE_CREDIBILITY = {
     "央视新闻": 10, "央视": 10, "CCTV": 10, "cctv": 10,
     "人民日报": 10, "新华社": 10, "Xinhua": 10,
     # ── 权威媒体（9）──
-    "中新网": 9, "财新网": 9, "caixin": 9, "新华社": 10,
+    "中新网": 9, "财新网": 9, "caixin": 9,
     "BBC": 9, "bbc": 9, "FT中文": 9, "ftchinese": 9,
     "纽约时报中文": 8, "nytimes": 8, "联合早报": 8, "zaobao": 8,
     # ── 一线媒体（8）──
@@ -41,87 +39,6 @@ def get_credibility(source_name: str) -> int:
         if key.lower() in source_name.lower():
             return score
     return SOURCE_CREDIBILITY["default"]
-
-
-def cross_validate(news_items: List[Dict], min_sources: int = 2) -> List[Dict]:
-    """
-    交叉验证：同一事件至少被 min_sources 个独立来源报道才采信
-    通过标题相似度判断是否为同一事件
-    """
-    if not news_items:
-        return []
-
-    validated = []
-    # 用标题前15字作为事件指纹
-    event_groups: Dict[str, List[Dict]] = {}
-    for item in news_items:
-        fingerprint = _event_fingerprint(item.get("title", ""))
-        if fingerprint not in event_groups:
-            event_groups[fingerprint] = []
-        event_groups[fingerprint].append(item)
-
-    for fingerprint, items in event_groups.items():
-        source_names = set(item.get("source", "") for item in items)
-        # 至少 N 个不同来源
-        if len(source_names) >= min_sources:
-            # 选可信度最高的那条作为代表作
-            best = max(items, key=lambda x: get_credibility(x.get("source", "")))
-            best["_cross_validated"] = True
-            best["_source_count"] = len(source_names)
-            best["_all_sources"] = list(source_names)
-            validated.append(best)
-        else:
-            # 只有1个来源的，降低权重但保留（附标记）
-            for item in items:
-                item["_cross_validated"] = False
-                item["_source_count"] = 1
-                validated.append(item)
-
-    logger.info(f"交叉验证: {len(news_items)}条 → {len(validated)}条通过 (≥{min_sources}源: {sum(1 for v in validated if v.get('_cross_validated'))})")
-    return validated
-
-
-def balance_by_category(news_items: List[Dict], max_per_category: int = 15) -> List[Dict]:
-    """按类别均衡采样，确保信息多样性"""
-    from collections import defaultdict
-    buckets: Dict[str, List[Dict]] = defaultdict(list)
-    for item in news_items:
-        cat = item.get("category", "综合")
-        buckets[cat].append(item)
-
-    balanced = []
-    for cat, items in buckets.items():
-        # 按可信度排序取前 N
-        items.sort(key=lambda x: x.get("_cross_validated", False), reverse=True)
-        balanced.extend(items[:max_per_category])
-
-    logger.info(f"类别均衡: {len(news_items)}条 → {len(balanced)}条 (类别数: {len(buckets)})")
-    return balanced
-
-
-def sort_by_credibility(news_items: List[Dict]) -> List[Dict]:
-    """按可信度 + 交叉验证排序"""
-    return sorted(
-        news_items,
-        key=lambda x: (
-            x.get("_cross_validated", False),
-            get_credibility(x.get("source", "")),
-            x.get("_source_count", 0),
-        ),
-        reverse=True,
-    )
-
-
-def deduplicate(news_items: List[Dict]) -> List[Dict]:
-    """去重：基于标题相似度"""
-    seen = set()
-    unique = []
-    for item in news_items:
-        fp = _event_fingerprint(item.get("title", ""))
-        if fp not in seen:
-            seen.add(fp)
-            unique.append(item)
-    return unique
 
 
 def _event_fingerprint(title: str, length: int = 15) -> str:

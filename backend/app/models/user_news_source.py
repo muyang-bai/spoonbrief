@@ -13,7 +13,7 @@ class UserNewsSource(Base):
     __tablename__ = "user_news_sources"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("hb_users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     url = Column(String(500), nullable=False)
     category = Column(String(50), default="自定义", nullable=False)

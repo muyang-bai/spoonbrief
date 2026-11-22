@@ -1,7 +1,9 @@
 <script setup>
+import SmartSelect from '../components/SmartSelect.vue'
 import { ref, onMounted } from 'vue'
 import { api } from '../api'
 import { t } from '../toast'
+import { confirmDialog } from '../confirm'
 
 const sources = ref([])
 const customSources = ref([])
@@ -48,7 +50,7 @@ async function addCustom() {
 }
 
 async function removeCustom(src) {
-  if (!confirm(`确定删除自定义信息源「${src.name}」吗？`)) return
+  if (!(await confirmDialog({ text: `确定删除自定义信息源「${src.name}」吗？` }))) return
   try {
     await api(`/sources/custom/${src.id}`, { method: 'DELETE' })
     t.ok('已删除')
@@ -99,9 +101,7 @@ onMounted(load)
         </label>
         <label class="field" style="margin: 0; width: 130px">
           <span>类别</span>
-          <select v-model="newSource.category" class="select">
-            <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-          </select>
+          <SmartSelect v-model="newSource.category" :options="categories.map(c => ({value:c,label:c}))" label="分类" />
         </label>
         <button class="btn btn-primary" :disabled="adding" @click="addCustom">
           <span v-if="adding" class="spinner"></span> 添加
@@ -148,7 +148,7 @@ onMounted(load)
 
     <p class="faint" style="margin-top: 14px; line-height: 1.8">
       关于可信度：信源可信度为 1-10 分的媒体评级（官方媒体 10 / 权威媒体 9 / 专业媒体 7 / 科技媒体 6 / 社区与自定义 4），
-      用于排序参考，不代表单篇内容真实性；多源交叉验证过的消息会额外标注。
+      用于排序参考，不代表单篇内容真实性。
     </p>
   </div>
 </template>

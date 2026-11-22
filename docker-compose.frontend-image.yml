@@ -1,0 +1,3 @@
+services:
+  frontend:
+    image: hotmailbrief:t180-web

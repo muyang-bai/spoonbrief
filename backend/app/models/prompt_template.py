@@ -42,6 +42,6 @@ class PromptTemplate(Base):
     usage_hint = Column(String(500), nullable=True)
 
     # 创建者（NULL=平台模板）
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("hb_users.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

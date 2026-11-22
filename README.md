@@ -2,185 +2,123 @@
 
 > 全网热点，AI 分析后，喂到你嘴边。
 
-**一勺热点**是一个 AI 驱动的热点情报简报工具：每天自动扫描全网热点，用大模型结合你的身份与兴趣，
-把热点翻译成**机会、风险与行动建议**，定时送到你的邮箱——不用刷，张嘴就行。
+一勺热点是一个 **AI 驱动的热点情报简报工具**：每天自动扫描全网热点，结合你的身份与关注方向，把热点翻译成**机会、风险与行动建议**，定时送到邮箱。
 
-- 在线体验：https://mail.muyang-bai.com
-- 一句话原理：14 个信源 → 语义归并信息池 → AI 两阶段分析 → 每条结论可溯源 → 每天 08:00 送达邮箱
+**核心主张：每天一封，只讲与你有关、且这次真的新增了什么。**
+
+- 在线体验：<https://mail.muyang-bai.com>（演示账号 `demo@muyang-bai.com` / `spoonbrief2026`）
 - AI 分析由 DeepSeek 生成 · 内容仅供参考，不构成投资建议
-- 本项目为 iCAN 大学生创新创业大赛（AI 产品实现方向）参赛作品，队伍：一勺热点队
+- 本项目为 iCAN 大学生创新创业大赛（AI 产品实现方向）参赛作品，团队：一勺热点队
 
 ---
 
 ## 为什么做这个
 
-每天 700+ 条热点，90% 与你无关；刷 40 分钟，记住的只有焦虑。普通 AI 新闻工具还有两个致命伤：
-**结论不可溯源**（AI 说错了无处可查）和**千人一面**（不看你的身份和兴趣）。
+每天 700+ 条热点，90% 与你无关；刷 40 分钟，记住的只有焦虑。通用 AI 新闻工具有两个通病：
+**结论不可溯源** 与 **每天把同一批新闻重新总结一遍**（看起来是新的，其实没有新增信息）。
 
 一勺热点的回答：
 
-| 问题 | 我们的解法 |
-|------|-----------|
-| 信息过载 | 语义归并去重，同事件多源报道合并为一条 |
-| 与你无关 | 订阅方向 + 用户画像 + 关键词分词级匹配，AI 全局分析师按你的视角解读 |
-| AI 不可信 | 每条结论绑定 `[N]` 引用 → 原文链接；多源交叉验证才打可信标；信源按媒体类型分级打分 |
-| 没时间看 | 每天 08:00 定时送达邮箱，3 分钟读完，机会/风险/行动建议直接可用 |
+| 问题 | 做法 |
+|---|---|
+| 信息过载 | 语义归并去重，同一事件多源报道合并为一条 |
+| 与你无关 | 订阅方向 + 用户画像 + 关键词分词匹配，AI 按你的视角解读 |
+| 每天重复 | **事件级跨期记忆**：同事件换标题/转载/AI 重述都判为重复；只有出现「新来源 + 新日期或新数据」才算进展 |
+| 没有更新 | 用户可选：跳过本次 / 改为周期汇总 / 照常推送 |
+| 结论不可信 | 每条素材附原文链接与五星信源等级（按来源类型，附评级依据） |
+| 反馈没用 | 邮件「有用 / 没用 + 原因」回流，下一期生成时作为约束注入 |
 
 ---
 
-## 核心功能
+## 功能一览（v2）
 
-- **订阅方向**：选 1–3 个关心方向（如 AI 芯片、低空经济），可自定义关键词与 RSS 信源
-- **AI 两阶段分析**：Stage 1 逐条抽取结构化要点（max_tokens 4000）→ Stage 2 注入画像与关键词做全局分析（max_tokens 8000），输出机会/风险/行动建议
-- **溯源可信**：正文引用 `[N]` 与原始新闻一一对应，点击即达原文；展示「可信度 X/10 · N 源交叉验证」
-- **定时送达**：每天 08:00 准时躺在邮箱；额度透明（默认 60 份/月，可封顶）
-- **历史简报**：网页端可回看所有简报与证据链
-- **自定义信源**：支持添加你自己的 RSS 源（实验性）
-
----
-
-## AI 原理（详见 `docs/大赛_架构图与流程图.md` 图 3）
-
-```
-候选新闻 ≤12 条（标题带 [N] 编号）
-  → Stage 1 信息抽取（DeepSeek，结构化要点）
-  → Stage 2 全局分析（注入用户画像+关键词 → 机会/风险/行动建议）
-  → 引用链接化（[N] → 原文超链接）
-  → 输出清洗（HTML 净化 + 内联样式）
-  → 落库 + 邮件模板渲染
-```
-
-**语义归并**：同事件三级判定——15 字指纹一致 / jieba 词交集 ≥2 / 2-gram Dice ≥0.40，逐级通过即合并。
-**可信度体系**：信源分级（官方 10 / 权威 9 / 专业 7 / 科技 6 / 社区 4）× 独立信源数（≥2 家交叉验证）。
+- **订阅与调度**：方向关键词、时间窗、cron 频率、分析模板、无更新策略
+- **信息池**：19 个信源每 30 分钟抓取，指纹去重 + 可信度打分 + 事件聚合
+- **事件级新颖性**：别名实体链接 + SimHash + 相似度聚类，输出 `fresh / progress / repeat`
+- **AI 分析**：6 套分析师模板（默认 / 投资 / 创业 / 行业深度 / 竞品 / 每日精读），单次调用产出全文
+- **决策层**：一句话结论、30 秒速览、情绪（利好/利空/中性）、影响分 1–10、今日行动清单、五维影响
+- **邮件简报**：浅色蓝版式、图文结构、原文链接、五星信源、事件进展（上次→这次）、周期汇总版式
+- **反馈闭环**：有用/没用 + 5 类原因（方向/太浅/太旧重复/依据不足/太长）
+- **画像**：8 维画像 + 完成度 + 「AI 实际看到的画像」透明预览
+- **管理端**：用户、模板、信源、公告、SMTP、AI 配置、用量看板（消费/请求/Tokens/模型分布/去重效率）
+- **双产品联动**：与 AiLifeOS 共库、HMAC 互通、同邮箱自动绑定，简报同步到 App
 
 ---
 
-## 系统架构
+## 技术栈
 
-六个 Docker 容器：
+- 后端：Python 3.11 + FastAPI + SQLAlchemy + Celery 5
+- 前端：Vue 3 + Vite
+- 数据：MySQL 8（与 AiLifeOS 共用库，热点表 `hb_` 前缀）、Redis 7（队列 + 30s 响应缓存）
+- 模型：DeepSeek（deepseek-flash）
+- 部署：Docker Compose（backend / frontend / worker / beat / redis）+ nginx + Let's Encrypt
 
+---
+
+## 快速开始
+
+```bash
+# 1. 配置环境变量（不要提交真实密钥）
+cp backend/.env.example backend/.env
+#    至少填写：DATABASE_URL / REDIS / SECRET_KEY / ENCRYPTION_KEY / DEEPSEEK_API_KEY / SMTP_*
+
+# 2. 启动
+docker compose up -d --build
+
+# 3. 打开
+#   http://localhost:8080       前端
+#   http://localhost:8000/docs  API 文档
 ```
-Nginx(HTTPS) → Frontend(Vue3 SPA) → Backend(FastAPI × Gunicorn)
-                                        ├─ PostgreSQL 16（业务数据，每日备份）
-                                        └─ Redis 7 ← Celery Beat（每 60s 巡检到期订阅）
-                                              └─ Celery Worker → DeepSeek / QQ邮箱 SMTP
+
+生产部署使用三份 compose 叠加（固定镜像版本，便于回滚）：
+
+```bash
+docker compose -f docker-compose.yml \
+               -f docker-compose.frontend-image.yml \
+               -f docker-compose.t158-credits.yml up -d
 ```
-
-**可靠性四层防重**：10 分钟去重 → 运行中跳过 → 24h 过期滚动 → TaskRun 落库审计；
-watchdog 每 15 分钟自愈孤儿任务；统一扣费（每份简报 1 额度，订阅级 monthly_quota 超支自动跳过并邮件通知）。
-
-完整五张架构图（Mermaid 源码，可直接在 mermaid.live 渲染）见 `docs/大赛_架构图与流程图.md`。
 
 ---
 
 ## 目录结构
 
 ```
-├── backend/               # FastAPI + SQLAlchemy + Celery
-│   ├── app/api/           # 认证/订阅/报告/信源/退订/管理端
-│   ├── app/models/        # 19 张业务表
-│   ├── app/services/      # 信息池/语义归并/可信度/AI 分析/邮件
-│   ├── app/tasks/         # celery beat + worker 任务
-│   └── app/prompts/       # 三套提示词模板（抽取/全局分析/个性化）
-├── frontend/              # Vue 3 + Vite 单页应用（12 个页面）
-├── deploy/                # 部署脚本与 nginx 配置
-├── docs/                  # 产品说明书 / 技术与原理 / 架构图 / 用户反馈清单
-└── docker-compose.yml     # 六服务编排
+backend/
+  app/
+    api/         # 用户端 / 管理端 / 内部互通接口
+    models/      # SQLAlchemy 模型（含事件记忆 story_memory）
+    services/    # 抓取、去重、新颖性、分析、决策、渲染、发送、用量
+    tasks/       # Celery 任务：调度、报告生成、邮件
+    utils/       # 加密、合规、安全抓取
+frontend/
+  src/views/     # 用户台 + 管理台
+  src/components/
+docs/            # 说明书、架构图、参赛材料
 ```
 
----
-
-## 本地开发
-
-### 后端（默认 SQLite，零配置起步）
-
-```bash
-cd backend
-python -m venv venv
-# Windows: venv\Scripts\activate   macOS/Linux: source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # 填写 SECRET_KEY / DEEPSEEK_API_KEY / SMTP 等
-uvicorn app.main:app --reload --port 8000
-```
-
-本地无需 Redis/Celery：`enable_local_scheduler=true`（.env.example 默认开启）会用 APScheduler
-在进程内跑巡检、看门狗与信息池抓取。
-
-### 前端
-
-```bash
-cd frontend
-npm install
-npm run dev                 # Vite dev server，/api 代理到 8000
-```
-
-### 关键环境变量
-
-| 变量 | 说明 |
-|------|------|
-| `SECRET_KEY` | 会话/令牌签名密钥（必填） |
-| `DEEPSEEK_API_KEY` | DeepSeek 密钥，两阶段分析调用 |
-| `SMTP_HOST/PORT/USER/PASSWORD/FROM` | 简报邮件发送（QQ 邮箱 465 端口可用） |
-| `DATABASE_URL` | 默认 `sqlite:///./spoonbrief.db`，生产用 PostgreSQL |
-| `ENABLE_LOCAL_SCHEDULER` | true = 本地 APScheduler（开发）；false = Celery beat（生产） |
-| `MONTHLY_QUOTA_DEFAULT` | 新用户每月简报额度，默认 60 |
-
-完整清单见 `backend/.env.example`。
-
----
-
-## 生产部署
-
-```bash
-docker compose up -d --build
-```
-
-六服务：`nginx` / `frontend` / `backend` / `postgres` / `redis` / `celery-worker`（+ beat 由
-celery-worker 内 APScheduler 或独立 beat 服务承载）。数据库每日 03:00 自动备份，详见
-`docs/项目说明书_技术与原理.md` 与 `deploy/deploy.sh`。
-
----
-
-## API 摘要
-
-| 模块 | 端点（节选） |
-|------|-------------|
-| 认证 | `POST /api/auth/register` `POST /api/auth/login` `POST /api/auth/send-reset-code` `POST /api/auth/reset-password` |
-| 订阅 | `GET/POST /api/subscriptions` `POST /api/subscriptions/generate-now` |
-| 报告 | `GET /api/reports` `GET /api/reports/{id}`（含证据链） |
-| 信源 | `GET/POST /api/sources`（含自定义 RSS） |
-| 提示词 | `GET/POST /api/user-prompts`（导出 `.spoonskill.json` 技能包） |
-| 退订 | `GET /api/unsubscribe/{token}`（一键退订，合规） |
-| 管理 | `/api/admin/*`（用户/额度/信源/SMTP/合规文案/公告，仅管理员） |
-
-接口文档见各 `backend/app/api/*.py` 与前端 `frontend/src/api.js`。
+关键文件：
+- `backend/app/services/novelty.py` — 事件级去重与进展判定
+- `backend/app/services/entity_link.py` — 别名实体链接 + SimHash
+- `backend/app/services/decision_layer.py` — 结构化决策层
+- `backend/app/services/email_template.py` — 邮件版式
+- `backend/app/tasks/report_tasks.py` — 端到端报告流水线
 
 ---
 
 ## 文档
 
-| 文件 | 内容 |
-|------|------|
-| `docs/大赛_产品说明书.md` | 参赛产品说明书（痛点/方案/功能/价值/商业模式） |
-| `docs/大赛_架构图与流程图.md` | 五张 Mermaid 架构图源码 + 答辩口述文字版 |
-| `docs/项目说明书_技术与原理.md` | 技术栈、AI 流水线、可信度模型、调度可靠性细节 |
-| `docs/产品优化清单_用户反馈.md` | 真实用户测试反馈与逐项修复记录 |
-| `docs/模板创建指南.md` | 提示词模板自定义指南（`.spoonskill.json`） |
+- `docs/参赛材料/产品说明书_v2.md` — 产品逻辑链路、架构、数据、商业化
+- `docs/参赛材料/大赛_架构图与流程图.md` — 6 张 Mermaid（架构/链路/新颖性/反馈/双产品/调度）
+- `docs/参赛材料/产品评估与优化路线.md` — 现状评估与排期
 
 ---
 
-## 参赛材料包
+## 合规
 
-iCAN 大学生创新创业大赛 · AI 产品实现方向（一勺热点队）
-
-1. 产品说明书（`docs/大赛_产品说明书.md`）
-2. 架构图与流程图 ×5（`docs/大赛_架构图与流程图.md`，mermaid.live 导出 PNG 即可）
-3. 60 秒产品宣传片（见 `docs/大赛_产品说明书.md` 附录说明）
-4. 在线产品：https://mail.muyang-bai.com
-5. 本仓库源码
-
----
+- AI 内容标注：AI 辅助分析，不是来源原文或已核实结论
+- 五星信源仅表示来源类型可溯性，不代表真实性概率
+- 不构成投资建议；每封邮件独立退订令牌，退订即时生效
 
 ## License
 
-[MIT](./LICENSE) © 2026 一勺热点队。AI 输出仅供参考，不构成投资建议。
+MIT

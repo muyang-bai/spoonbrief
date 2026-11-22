@@ -1,5 +1,5 @@
 {
-  "name": "hotmail-brief-frontend",
+  "name": "spoonbrief-web",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -7,14 +7,21 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@vitejs/plugin-vue": "^5.2.1",
-    "vite": "^6.0.5"
+    "eslint": "^9.39.5",
+    "eslint-plugin-vue": "^9.33.0",
+    "globals": "^15.15.0",
+    "vite": "^6.0.5",
+    "vue-eslint-parser": "^9.4.3"
   }
 }

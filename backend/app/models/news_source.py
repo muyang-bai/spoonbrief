@@ -6,7 +6,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Text, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, Text
 
 from app.database import Base
 

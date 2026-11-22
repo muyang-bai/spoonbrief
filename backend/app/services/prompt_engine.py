@@ -85,3 +85,9 @@ def render_prompt(template: PromptTemplate, content: str, persona: Dict) -> Tupl
         user += f"\n\n## 读者画像\n{persona_str}"
 
     return system, user
+
+def template_accessible(template, user_id: int) -> bool:
+    """Use permissions match the existing platform/open-source/private template UI."""
+    return bool(template and getattr(template, 'is_active', True) and (
+        getattr(template, 'is_platform', False) or getattr(template, 'is_open_source', False)
+        or getattr(template, 'owner_id', None) == user_id))

@@ -8,12 +8,15 @@ import smtplib
 import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
+from email.utils import formataddr
 from typing import Optional, List, Dict
 from loguru import logger
 
 from bs4 import BeautifulSoup
 
 from app.config import get_settings
+from app.utils.secrets import unseal
 
 settings = get_settings()
 
@@ -43,7 +46,7 @@ def _effective_smtp_config() -> Dict:
             if db_cfg.get("user"):
                 cfg["user"] = db_cfg.get("user")
             if db_cfg.get("password"):
-                cfg["password"] = db_cfg.get("password")
+                cfg["password"] = unseal(db_cfg.get("password"))
             if db_cfg.get("from_email"):
                 cfg["from_email"] = db_cfg.get("from_email")
             if db_cfg.get("from_name"):
@@ -80,9 +83,9 @@ def _send_sync(
         return False
 
     message = MIMEMultipart("alternative")
-    message["From"] = f"{from_name} <{from_email}>"
+    message["From"] = formataddr((str(Header(from_name or "", "utf-8")), from_email))
     message["To"] = ", ".join(to_emails)
-    message["Subject"] = subject
+    message["Subject"] = Header(subject, "utf-8")
     # 纯文本备选 + HTML 正文（提高送达兼容性）
     message.attach(MIMEText(_html_to_text(html_body), "plain", "utf-8"))
     message.attach(MIMEText(html_body, "html", "utf-8"))
@@ -98,13 +101,13 @@ def _send_sync(
         server.sendmail(from_email, to_emails, message.as_string())
         server.quit()
 
-        logger.info(f"邮件发送成功: {to_emails} | {subject}")
+        logger.info(f"邮件发送成功: {len(to_emails)} 位收件人")
         return True
-    except smtplib.SMTPAuthenticationError as e:
-        logger.error(f"SMTP 认证失败（请检查邮箱地址和授权码是否正确）: {e}")
+    except smtplib.SMTPAuthenticationError:
+        logger.error("SMTP 认证失败（请检查邮箱地址和授权码是否正确）")
         return False
     except Exception as e:
-        logger.error(f"邮件发送失败: {to_emails} | {e}")
+        logger.error(f"邮件发送失败: {type(e).__name__}")
         return False
 
 

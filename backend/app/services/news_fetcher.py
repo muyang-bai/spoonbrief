@@ -4,7 +4,6 @@
 """
 
 from __future__ import annotations
-import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
@@ -15,9 +14,9 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from app.config import get_settings
-from app.models.news_source import NewsSource, SourceType, SourceCategory
+from app.models.news_source import NewsSource, SourceType
 from app.services.source_credibility import (
-    cross_validate, balance_by_category, sort_by_credibility, deduplicate, get_credibility
+    get_credibility
 )
 
 settings = get_settings()
@@ -35,22 +34,6 @@ def _within_days(published: Optional[datetime], days: int) -> bool:
     if not published:
         return True
     return published >= datetime.utcnow() - timedelta(days=days)
-
-
-def _update_api_remaining(source: NewsSource, remaining: int):
-    """更新信息源的 API 剩余次数"""
-    from app.database import SessionLocal
-    db = SessionLocal()
-    try:
-        s = db.query(NewsSource).get(source.id)
-        if s:
-            s.api_remaining = remaining
-            s.api_remaining_updated = datetime.utcnow()
-            db.commit()
-    except Exception:
-        pass
-    finally:
-        db.close()
 
 
 def _touch_last_fetch(source: NewsSource):
@@ -274,99 +257,4 @@ class NewsFetcher:
         _touch_last_fetch(source)
         return items
 
-    # ═══════ 全局聚合入口 ═══════
-    async def aggregate(
-        self,
-        sources: List[NewsSource],
-        keywords: List[str],
-        days: int,
-        category_id: Optional[str] = None,
-    ) -> dict:
-        """
-        主入口：聚合 → 验证 → 去重 → 排序 → 均衡，返回 dict 包含 items 和 stats
-        """
-        stats = {"total_fetched": 0, "after_validation": 0, "after_balance": 0,
-                 "sources_used": [], "sources_failed": [], "category": category_id}
 
-        # 过滤匹配类别的源；该类别无源时回退到全部可用源（保证任何订阅都有数据）
-        active_sources = [s for s in sources if s.is_active]
-        if category_id:
-            matching = [s for s in active_sources if s.source_category.value == category_id]
-            comprehensive = [s for s in active_sources if s.source_category.value == "综合"]
-            if matching:
-                active_sources = list({s.id: s for s in matching + comprehensive}.values())
-            else:
-                logger.warning(f"类别 {category_id} 无专属信息源，回退到全部 {len(active_sources)} 个源")
-                stats["category_fallback"] = True
-
-        tasks = []
-        for src in active_sources:
-            tasks.append(self._fetch_source(src, keywords, days))
-
-        results_lists = await asyncio.gather(*tasks, return_exceptions=True)
-        all_news = []
-        for i, r in enumerate(results_lists):
-            src_name = active_sources[i].name if i < len(active_sources) else "?"
-            if isinstance(r, list):
-                if r:
-                    all_news.extend(r)
-                    stats["sources_used"].append(src_name)
-                else:
-                    stats["sources_failed"].append(f"{src_name}(无数据)")
-            else:
-                stats["sources_failed"].append(f"{src_name}(异常)")
-
-        stats["total_fetched"] = len(all_news)
-
-        # 去重
-        all_news = deduplicate(all_news)
-
-        # 交叉验证（≥2 源采信）
-        all_news = cross_validate(all_news, min_sources=2)
-        stats["after_validation"] = len(all_news)
-
-        # 可信度排序
-        all_news = sort_by_credibility(all_news)
-
-        # 类别均衡采样
-        all_news = balance_by_category(all_news, max_per_category=15)
-        stats["after_balance"] = len(all_news)
-
-        # 限制总数 50 条
-        final = all_news[:50]
-
-        # 如果没有精确匹配，回退到类别热点（不带关键词宽泛拉取）
-        if keywords and not any(item.get("_matched") for item in final):
-            logger.info(f"关键词 '{keywords}' 无精确匹配，回退到类别 {category_id} 综合热点")
-            fallback = []
-            for src in active_sources:
-                broad = await self._fetch_source(src, [], days)
-                fallback.extend(broad)
-            fallback = deduplicate(fallback)
-            fallback = sort_by_credibility(fallback)
-            final = fallback[:50]
-            stats["fallback"] = True
-            stats["after_balance"] = len(final)
-
-        # 无数据时诚实返回空（不再伪造演示数据），由上层给出明确的失败原因
-        if not final:
-            logger.warning(f"所有信息源均无数据，返回空结果（sources_failed={stats['sources_failed']}）")
-
-        logger.info(f"聚合完成: 获取{stats['total_fetched']}条 → 验证后{stats['after_validation']}条 → 均衡后{stats['after_balance']}条")
-        return {"items": final, "stats": stats}
-
-def _dev_fallback_data(keywords: list, category_id: str = None) -> list:
-    """[已废弃] 本地兜底测试数据：不再使用，信息源无数据时诚实返回空"""
-    return []
-
-
-
-
-_news_fetcher: Optional[NewsFetcher] = None
-
-
-async def get_news_fetcher() -> NewsFetcher:
-    global _news_fetcher
-    if _news_fetcher is None:
-        _news_fetcher = NewsFetcher()
-    return _news_fetcher

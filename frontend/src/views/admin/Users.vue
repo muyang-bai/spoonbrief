@@ -1,7 +1,9 @@
 <script setup>
+import SmartSelect from '../../components/SmartSelect.vue'
 import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 import { t } from '../../toast'
+import { confirmDialog } from '../../confirm'
 import Modal from '../../components/Modal.vue'
 
 const users = ref([])
@@ -106,7 +108,7 @@ async function saveQuota() {
 }
 
 async function remove(u) {
-  if (!confirm(`确定删除用户「${u.email}」吗？删除后不可恢复`)) return
+  if (!(await confirmDialog({ text: `确定删除用户「${u.email}」吗？删除后不可恢复` }))) return
   try {
     await api(`/admin/users/${u.id}`, { method: 'DELETE' })
     t.ok('用户已删除')
@@ -144,7 +146,8 @@ onMounted(load)
             <tr>
               <th>邮箱</th>
               <th>昵称</th>
-              <th>角色</th>
+              <th>权限</th>
+              <th>会员档位</th>
               <th>订阅数</th>
               <th>配额</th>
               <th>状态</th>
@@ -157,9 +160,12 @@ onMounted(load)
               <td>{{ u.email }}</td>
               <td>{{ u.nickname || '—' }}</td>
               <td>
-                <span class="badge" :class="u.role === 'admin' ? 'badge-blue' : 'badge-gray'">
-                  {{ u.role === 'admin' ? '管理员' : '普通用户' }}
+                <span class="badge" :class="(u.permission || u.role) === 'admin' ? 'badge-blue' : 'badge-gray'">
+                  {{ (u.permission || u.role) === 'admin' ? '管理员' : '成员' }}
                 </span>
+              </td>
+              <td>
+                <span class="badge badge-teal">{{ u.member_tier_label || '未同步' }}</span>
               </td>
               <td>{{ u.subscription_count ?? 0 }}</td>
               <td class="muted">{{ u.api_quota_used ?? 0 }} / {{ u.api_quota_total ?? 0 }}</td>
@@ -192,11 +198,8 @@ onMounted(load)
         <input v-model="editForm.nickname" class="input" placeholder="用户昵称" />
       </label>
       <label class="field">
-        <span>角色</span>
-        <select v-model="editForm.role" class="select">
-          <option value="user">普通用户</option>
-          <option value="admin">管理员</option>
-        </select>
+        <span>权限（不是会员档位）</span>
+        <SmartSelect v-model="editForm.role" :options="[{value:'user',label:'成员'},{value:'admin',label:'管理员'}]" label="角色" />
       </label>
       <label class="field" style="display: flex; align-items: center; gap: 8px">
         <input v-model="editForm.is_active" type="checkbox" style="accent-color: var(--primary); width: 16px; height: 16px" />

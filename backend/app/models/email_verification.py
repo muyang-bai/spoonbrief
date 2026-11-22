@@ -22,8 +22,8 @@ class EmailVerificationCode(Base):
 
     @staticmethod
     def generate_code() -> str:
-        import random
-        return f"{random.randint(100000, 999999)}"
+        import secrets
+        return str(100000 + secrets.randbelow(900000))
 
     @staticmethod
     def default_expiry() -> datetime:

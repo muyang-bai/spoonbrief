@@ -1,4 +1,5 @@
 <script setup>
+import SiteFooter from '../components/SiteFooter.vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
@@ -49,7 +50,7 @@ async function sendResetCode() {
   resetSending.value = true
   try {
     await api('/auth/send-reset-code', { method: 'POST', body: { email: resetEmail.value } })
-    t.ok('重置验证码已发送，请查收邮箱（5 分钟内有效）')
+    t.ok('重置验证码已提交发送，请查收邮箱（5 分钟内有效）')
     resetCountdown.value = 60
     resetTimer = setInterval(() => {
       resetCountdown.value -= 1
@@ -86,14 +87,21 @@ async function doReset() {
 </script>
 
 <template>
-  <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px">
-    <div class="card" style="width: 100%; max-width: 400px; padding: 32px">
+  <div class="auth-page">
+  <header class="auth-nav">
+    <a href="/" class="brand" aria-label="返回一勺热点首页">
+      <svg class="mark" viewBox="0 0 44 44" aria-hidden="true"><g fill="none" stroke="#2868ed" stroke-width="2.4" stroke-linecap="round"><ellipse cx="15" cy="14" rx="6" ry="8" transform="rotate(36 15 14)"/><path d="M19.5 20.5 31 35"/></g><circle cx="33" cy="11" r="3" fill="#2868ed"/><circle cx="36" cy="21" r="1.6" fill="#8db8fa"/><circle cx="26" cy="5" r="1.3" fill="#b7d2fa"/></svg>
+      <span class="wordmark">一勺热点<small>SPOONBRIEF</small></span>
+    </a>
+    <nav class="nav-links">
+      <a href="/" class="muted">返回首页</a>
+    </nav>
+  </header>
+    <div class="card auth-card">
       <div style="text-align: center; margin-bottom: 22px">
-        <router-link to="/" title="返回首页">
-          <img src="/favicon.svg" alt="logo" style="width: 52px; height: 52px; cursor: pointer" />
-        </router-link>
-        <h2 style="margin-top: 10px">{{ resetMode ? '找回密码' : '登录 一勺热点' }}</h2>
-        <p v-if="resetMode" class="muted" style="margin-top: 4px">通过注册邮箱验证码重置密码</p>
+        <h2>{{ resetMode ? '找回密码' : '登录一勺热点' }}</h2>
+        <p v-if="resetMode" class="muted" style="margin-top: 8px">通过注册邮箱验证码重置密码</p>
+        <p v-else class="muted" style="margin-top: 8px">使用已有账号继续管理订阅和简报</p>
       </div>
 
       <!-- 忘记密码 -->
@@ -145,6 +153,7 @@ async function doReset() {
         </p>
       </template>
     </div>
+    <SiteFooter compact />
   </div>
 </template>
 
@@ -158,4 +167,8 @@ async function doReset() {
   color: var(--primary);
   padding: 0;
 }
+.auth-nav .brand { display:flex;align-items:center;gap:11px;font-weight:650;color:var(--ink,#18304a);font-size:16px; }
+.auth-nav .wordmark { line-height:1.35; }
+.auth-nav .wordmark small { display:block;color:#72849b;font-size:10px;letter-spacing:.15em;font-weight:400;margin-top:2px; }
+.auth-card h2 { margin:0; }
 </style>

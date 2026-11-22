@@ -1,4 +1,5 @@
 <script setup>
+import SiteFooter from '../components/SiteFooter.vue'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
@@ -17,7 +18,7 @@ const sending = ref(false)
 const countdown = ref(0)
 
 const emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value))
-const nicknameValid = computed(() => /^[a-zA-Z\u4e00-\u9fff\-]{2,20}$/.test(nickname.value))
+const nicknameValid = computed(() => /^[a-zA-Z\u4e00-\u9fff-]{2,20}$/.test(nickname.value))
 const passwordValid = computed(() => password.value.length >= 8 && /[a-zA-Z]/.test(password.value) && /\d/.test(password.value))
 
 let timer = null
@@ -31,7 +32,7 @@ async function sendCode() {
   sending.value = true
   try {
     await api('/auth/send-code', { method: 'POST', body: { email: email.value } })
-    t.ok('验证码已发送，请查收邮箱（5 分钟内有效）')
+    t.ok('验证码已提交发送，请查收邮箱（5 分钟内有效）')
     countdown.value = 60
     timer = setInterval(() => {
       countdown.value -= 1
@@ -70,14 +71,20 @@ async function doRegister() {
 </script>
 
 <template>
-  <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px">
-    <div class="card" style="width: 100%; max-width: 420px; padding: 32px">
+  <div class="auth-page">
+  <header class="auth-nav">
+    <a href="/" class="brand" aria-label="返回一勺热点首页">
+      <svg class="mark" viewBox="0 0 44 44" aria-hidden="true"><g fill="none" stroke="#2868ed" stroke-width="2.4" stroke-linecap="round"><ellipse cx="15" cy="14" rx="6" ry="8" transform="rotate(36 15 14)"/><path d="M19.5 20.5 31 35"/></g><circle cx="33" cy="11" r="3" fill="#2868ed"/><circle cx="36" cy="21" r="1.6" fill="#8db8fa"/><circle cx="26" cy="5" r="1.3" fill="#b7d2fa"/></svg>
+      <span class="wordmark">一勺热点<small>SPOONBRIEF</small></span>
+    </a>
+    <nav class="nav-links">
+      <a href="/" class="muted">返回首页</a>
+    </nav>
+  </header>
+    <div class="card auth-card">
       <div style="text-align: center; margin-bottom: 22px">
-        <router-link to="/" title="返回首页">
-          <img src="/favicon.svg" alt="logo" style="width: 52px; height: 52px; cursor: pointer" />
-        </router-link>
-        <h2 style="margin-top: 10px">创建你的账户</h2>
-        <p class="muted" style="margin-top: 4px">免费注册，立即开启你的智能情报之旅</p>
+        <h2>创建你的账户</h2>
+        <p class="muted" style="margin-top: 8px">注册后即可设置关注方向，把简报送到邮箱</p>
       </div>
 
       <label class="field">
@@ -114,6 +121,15 @@ async function doRegister() {
         已有账号？
         <router-link to="/login">直接登录</router-link>
       </p>
+      <p class="muted" style="text-align: center; margin-top: 12px; font-size: 12.5px">注册即表示你已阅读并同意<router-link to="/privacy">《隐私政策》</router-link></p>
     </div>
+    <SiteFooter compact />
   </div>
 </template>
+
+<style scoped>
+.auth-nav .brand { display:flex;align-items:center;gap:11px;font-weight:650;color:var(--ink,#18304a);font-size:16px; }
+.auth-nav .wordmark { line-height:1.35; }
+.auth-nav .wordmark small { display:block;color:#72849b;font-size:10px;letter-spacing:.15em;font-weight:400;margin-top:2px; }
+.auth-card h2 { margin:0; }
+</style>

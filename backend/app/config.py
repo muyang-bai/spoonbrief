@@ -4,10 +4,9 @@
 
 from __future__ import annotations
 from functools import lru_cache
-from typing import Optional, List
+from typing import List
 from urllib.parse import quote_plus
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):

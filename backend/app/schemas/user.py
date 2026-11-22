@@ -15,6 +15,7 @@ class UserProfile(BaseModel):
         from_attributes = True
 
 class UpdatePersonaRequest(BaseModel):
+    # —— v1 字段（兼容保留）——
     identities: Optional[List[str]] = None
     student: Optional[dict] = None
     entrepreneur: Optional[dict] = None
@@ -22,6 +23,22 @@ class UpdatePersonaRequest(BaseModel):
     creator: Optional[dict] = None
     interests: Optional[Union[List[str], Dict[str, Any]]] = None  # 兼容新旧前端格式
     self_description: Optional[str] = None
+
+    # —— v2 新增：结构化维度（点选为主，均可不填）——
+    field: Optional[str] = None                 # 所在领域/专业
+    role_title: Optional[str] = None            # 角色/职级
+    goals: Optional[List[str]] = None           # 想解决的问题
+    domains: Optional[List[str]] = None         # 长期关注赛道
+    content_prefs: Optional[List[str]] = None   # 偏好内容类型
+    outputs: Optional[List[str]] = None         # 期望简报输出
+    avoid: Optional[List[str]] = None           # 规避内容
+    perspective: Optional[str] = None           # 决策视角
+    horizon: Optional[str] = None               # 时间尺度
+    risk: Optional[str] = None                  # 风险偏好
+    reading_length: Optional[str] = None        # 阅读习惯
+    tone: Optional[str] = None                  # 期望语气
+    pain_point: Optional[str] = None            # 最近在纠结的事
+    extra_notes: Optional[str] = None           # 任意补充
 
 class EmailAddressCreate(BaseModel):
     email: EmailStr

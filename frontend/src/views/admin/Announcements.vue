@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 import { t } from '../../toast'
+import { confirmDialog } from '../../confirm'
 import Modal from '../../components/Modal.vue'
 
 const list = ref([])
@@ -52,7 +53,7 @@ async function save() {
 }
 
 async function erase(a) {
-  if (!confirm(`确认擦除公告「${a.title}」吗？擦除后用户端不再展示。`)) return
+  if (!(await confirmDialog({ text: `确认擦除公告「${a.title}」吗？擦除后用户端不再展示。` }))) return
   erasing.value = a.id
   try {
     await api(`/announcements/${a.id}/erase`, { method: 'PUT' })
@@ -66,7 +67,7 @@ async function erase(a) {
 }
 
 async function remove(a) {
-  if (!confirm('确认删除此公告？')) return
+  if (!(await confirmDialog({ text: '确认删除此公告？' }))) return
   try {
     await api(`/announcements/${a.id}`, { method: 'DELETE' })
     t.ok('公告已删除')

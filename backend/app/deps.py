@@ -52,7 +52,8 @@ def _monthly_reset(user: User) -> bool:
     """按月自动重置配额；返回是否发生重置"""
     now = datetime.utcnow()
     if user.api_quota_reset_at is None or now >= user.api_quota_reset_at:
-        user.api_quota_used = 0
+        if user.api_quota_reset_at is not None:
+            user.api_quota_used = 0
         # 下月1号 00:00 UTC
         if now.month == 12:
             next_month = datetime(now.year + 1, 1, 1)
@@ -65,9 +66,12 @@ def _monthly_reset(user: User) -> bool:
 
 def ensure_quota_available(user: User, db: Session) -> bool:
     """额度校验（API 与定时任务共用）：按月重置 + 判断是否还有额度"""
+    user = db.query(User).filter(User.id == user.id).populate_existing().with_for_update().one()
     if _monthly_reset(user):
         db.commit()
-    return user.api_quota_used < user.api_quota_total
+    available = user.api_quota_used < user.api_quota_total
+    db.commit()
+    return available
 
 
 async def check_api_quota(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
@@ -80,7 +84,4 @@ async def check_api_quota(user: User = Depends(get_current_user), db: Session = 
     return user
 
 
-def consume_api_quota(user: User, db: Session) -> None:
-    """报告生成成功后扣减一次配额"""
-    user.api_quota_used += 1
-    db.commit()
+# All successful-operation charges are settled through services.credits.

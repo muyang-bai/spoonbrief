@@ -1,7 +1,9 @@
 <script setup>
+import SmartSelect from '../../components/SmartSelect.vue'
 import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 import { t } from '../../toast'
+import { confirmDialog } from '../../confirm'
 import Modal from '../../components/Modal.vue'
 
 const sources = ref([])
@@ -42,6 +44,16 @@ function blankForm() {
 function typeLabel(v) {
   return sourceTypes.find((s) => s.v === v)?.label || v || '—'
 }
+
+function remainingLabel(s) {
+  if (s.api_remaining_label) return s.api_remaining_label
+  if (s.api_remaining == null || s.api_remaining === '') return '—'
+  const n = Number(s.api_remaining)
+  if (!Number.isFinite(n)) return '—'
+  if (n < 0) return '不限'
+  return String(n)
+}
+
 
 async function load() {
   loading.value = true
@@ -99,7 +111,7 @@ async function save() {
 }
 
 async function remove(s) {
-  if (!confirm(`确认删除信息源「${s.name}」吗？`)) return
+  if (!(await confirmDialog({ text: `确认删除信息源「${s.name}」吗？` }))) return
   try {
     await api(`/sources/${s.id}`, { method: 'DELETE' })
     t.ok('信息源已删除')
@@ -149,7 +161,7 @@ onMounted(load)
             <th>类别</th>
             <th>可信度</th>
             <th>状态</th>
-            <th>API 剩余</th>
+            <th>剩余调用</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -176,7 +188,7 @@ onMounted(load)
                 </label>
               </div>
             </td>
-            <td>{{ s.api_remaining ?? '—' }}</td>
+            <td>{{ remainingLabel(s) }}</td>
             <td>
               <div style="display: flex; gap: 6px">
                 <button class="btn btn-outline btn-sm" @click="openEdit(s)">编辑</button>
@@ -196,15 +208,11 @@ onMounted(load)
       <div class="grid-2" style="grid-template-columns: 1fr 1fr; gap: 12px">
         <label class="field">
           <span>类型</span>
-          <select v-model="form.source_type" class="select">
-            <option v-for="s in sourceTypes" :key="s.v" :value="s.v">{{ s.label }}</option>
-          </select>
+          <SmartSelect v-model="form.source_type" :options="sourceTypes.map(s => ({value:s.v,label:s.label}))" label="信源类型" />
         </label>
         <label class="field">
           <span>类别</span>
-          <select v-model="form.source_category" class="select">
-            <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
-          </select>
+          <SmartSelect v-model="form.source_category" :options="categories.map(c => ({value:c,label:c}))" label="分类" />
         </label>
       </div>
       <label class="field">

@@ -1,10 +1,10 @@
 from __future__ import annotations
-from pydantic import BaseModel, field_validator
-from typing import Optional, List
+from pydantic import BaseModel, field_validator, Field
+from typing import Optional
 from datetime import datetime, timezone
 
 class SubscriptionCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     category_id: Optional[str] = None
     keywords: Optional[str] = None
     time_window: str = "7d"
@@ -14,7 +14,9 @@ class SubscriptionCreate(BaseModel):
     use_custom_api: bool = False
     prompt_template_id: Optional[int] = None
     api_key_id: Optional[int] = None
-    monthly_quota: Optional[int] = None
+    monthly_quota: Optional[int] = Field(default=None, ge=0, le=100000)
+    novelty_policy: str = "digest"
+    digest_window_days: int = Field(default=3, ge=1, le=7)
 
     @field_validator("time_window")
     @classmethod
@@ -25,7 +27,7 @@ class SubscriptionCreate(BaseModel):
         return v
 
 class SubscriptionUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     category_id: Optional[str] = None
     keywords: Optional[str] = None
     time_window: Optional[str] = None
@@ -36,12 +38,19 @@ class SubscriptionUpdate(BaseModel):
     prompt_template_id: Optional[int] = None
     api_key_id: Optional[int] = None
     is_active: Optional[bool] = None
-    monthly_quota: Optional[int] = None
+    monthly_quota: Optional[int] = Field(default=None, ge=0, le=100000)
+    novelty_policy: Optional[str] = None
+    digest_window_days: Optional[int] = Field(default=None, ge=1, le=7)
+
+    @field_validator("time_window")
+    @classmethod
+    def check_window(cls, value):
+        return SubscriptionCreate.check_window(value) if value is not None else None
 
 class SubscriptionOut(BaseModel):
     id: int
     user_id: int
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     category_id: Optional[str]
     keywords: Optional[str]
     time_window: str
@@ -53,6 +62,8 @@ class SubscriptionOut(BaseModel):
     api_key_id: Optional[int]
     is_active: bool
     monthly_quota: Optional[int]
+    novelty_policy: str = "digest"
+    digest_window_days: int = 3
     last_sent_at: Optional[datetime]
     next_sent_at: Optional[datetime]
     created_at: datetime

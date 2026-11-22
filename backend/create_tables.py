@@ -15,6 +15,9 @@ from app.models.compliance_text import ComplianceText
 from app.models.unsubscribe_token import UnsubscribeToken
 from app.models.news_item import NewsItem, NewsEvent
 from app.models.task_run import TaskRun
+from app.models.user_news_source import UserNewsSource
+from app.models.report_feedback import ReportFeedback
+from app.models.token_usage import TokenUsage
 
 Base.metadata.create_all(bind=engine)
 print("All tables created!")

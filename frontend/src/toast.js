@@ -16,4 +16,5 @@ export function toast(message, type = 'success', duration = 3200) {
 export const t = {
   ok: (m) => toast(m, 'success'),
   err: (m) => toast(m || '操作失败，请稍后重试', 'error', 4200),
+  info: (m) => toast(m, 'info', 4200),
 }

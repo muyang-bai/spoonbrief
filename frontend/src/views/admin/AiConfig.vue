@@ -1,4 +1,5 @@
 <script setup>
+import SmartSelect from '../../components/SmartSelect.vue'
 import { ref, onMounted } from 'vue'
 import { api } from '../../api'
 import { t } from '../../toast'
@@ -13,6 +14,8 @@ const form = ref({
 const loading = ref(true)
 const saving = ref(false)
 const testing = ref(false)
+const models = ref([])
+const loadingModels = ref(false)
 
 const providers = [
   { v: 'deepseek', label: 'DeepSeek' },
@@ -35,6 +38,20 @@ async function load() {
     t.err(e.message)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadModels() {
+  loadingModels.value = true
+  try {
+    const d = await api('/admin/ai-models', { timeout: 30000 })
+    models.value = d.models || []
+    if (!form.value.model && d.current) form.value.model = d.current
+    t.ok(models.value.length ? `已获取 ${models.value.length} 个模型` : '未获取到模型')
+  } catch (e) {
+    t.err(e.message)
+  } finally {
+    loadingModels.value = false
   }
 }
 
@@ -68,7 +85,7 @@ onMounted(load)
 <template>
   <div>
     <div class="page-actions">
-      <p class="muted">配置平台默认AI接口，用户未提供自有Key时将使用此配置</p>
+      <p class="muted">平台默认 AI 接口：所有用户统一使用这里的配置，用户端不再提供自备 Key</p>
     </div>
 
     <div v-if="loading" class="loading-center">加载中…</div>
@@ -77,9 +94,7 @@ onMounted(load)
       <p class="muted" style="margin-bottom: 16px">模型服务商（DeepSeek 等）- 用于内容分析</p>
       <label class="field">
         <span>服务商</span>
-        <select v-model="form.provider" class="select">
-          <option v-for="p in providers" :key="p.v" :value="p.v">{{ p.label }}</option>
-        </select>
+        <SmartSelect v-model="form.provider" :options="providers.map(p => ({value:p.v,label:p.label}))" label="AI 服务商" />
       </label>
       <label class="field">
         <span>API Key</span>
@@ -90,8 +105,14 @@ onMounted(load)
         <input v-model="form.base_url" class="input" placeholder="https://api.deepseek.com/v1" />
       </label>
       <label class="field">
-        <span>模型名</span>
-        <input v-model="form.model" class="input" placeholder="deepseek-v4-flash" />
+        <span>模型名（从服务商自动获取）</span>
+        <div style="display: flex; gap: 8px">
+          <SmartSelect v-if="models.length" v-model="form.model" :options="models.map(m => ({value:m,label:m}))" label="模型" />
+          <input v-else v-model="form.model" class="input" placeholder="先点右侧按钮获取模型" />
+          <button class="btn btn-outline" :disabled="loadingModels" @click="loadModels">
+            <span v-if="loadingModels" class="spinner"></span> 获取模型
+          </button>
+        </div>
       </label>
       <label class="field" style="display: flex; align-items: center; gap: 8px">
         <input v-model="form.enabled" type="checkbox" style="accent-color: var(--primary); width: 16px; height: 16px" />

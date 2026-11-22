@@ -22,11 +22,7 @@ def generate_report(self, subscription_id: int):
     from app.database import SessionLocal
     from app.models.subscription import Subscription, TimeWindow
     from app.models.user import User
-    from app.models.email_address import EmailAddress
-    from app.models.news_source import NewsSource
     from app.models.report import Report, ReportStatus
-    from app.models.compliance_text import ComplianceText
-    from app.services.news_fetcher import get_news_fetcher
     from app.services.ai_analyzer import get_analyzer, _clean_ai_output
     from app.services.email_sender import send_email_sync
     from app.services.email_template import render_email
@@ -34,7 +30,15 @@ def generate_report(self, subscription_id: int):
 
     db = SessionLocal()
     task_id = None
+    lock_conn = None
     try:
+        # Cross-process manual/scheduled exclusion; connection held until finally.
+        if db.bind.dialect.name == 'mysql':
+            from sqlalchemy import text
+            lock_conn = db.bind.connect()
+            if lock_conn.execute(text("SELECT GET_LOCK(:name, 0)"), {'name': f'hb-report-{subscription_id}'}).scalar() != 1:
+                return
+
         sub = db.query(Subscription).get(subscription_id)
         if not sub or not sub.is_active:
             logger.warning(f"订阅 {subscription_id} 不存在或已禁用")
@@ -42,6 +46,12 @@ def generate_report(self, subscription_id: int):
 
         user = db.query(User).get(sub.user_id)
         if not user:
+            return
+
+        from sqlalchemy import text
+        pending_mail = db.execute(text("SELECT COUNT(*) FROM hb_credit_events WHERE user_id=:uid AND state='reserved' AND operation_key LIKE :prefix"), {'uid':user.id,'prefix': f'{user.id}:mail:{subscription_id}:%'}).scalar()
+        if pending_mail:
+            logger.warning("检测到未结算邮件操作，暂停该账号新投递，需人工核对发送结果后处理")
             return
 
         # 最终防重：10 分钟内已有成功发送的报告则跳过（防崩溃后调度重复触发）
@@ -56,11 +66,11 @@ def generate_report(self, subscription_id: int):
             return
 
         # ── 额度统一计费（手动/定时同规则，均可预期）──
-        from app.deps import ensure_quota_available, consume_api_quota
+        from app.deps import ensure_quota_available
         if not ensure_quota_available(user, db):
-            logger.warning(f"订阅 {subscription_id} 用户 {user.id} 本月额度已用完，跳过并通知")
+            logger.warning(f"订阅 {subscription_id} 用户 {user.id} 本月积分已用完，跳过并通知")
             _skip_with_notice(db, subscription_id, user, sub,
-                              "本月额度已用完（可在「我的画像」查看额度与重置时间，或联系管理员调整）")
+                              "本月积分已用完（可在「我的画像」查看额度与重置时间，或联系管理员调整）")
             return
 
         # ── 订阅级月度上限（防"忘记关闭订阅"持续消耗）──
@@ -91,13 +101,17 @@ def generate_report(self, subscription_id: int):
             user_id=user.id,
             subscription_id=sub.id,
             status=ReportStatus.FETCHING.value,
-            subject=f"{report_name} - {date_str}",
+            subject=f"一勺热点｜{report_name} · {date_str}",
         )
         db.add(report)
         db.commit()
         db.refresh(report)
 
         try:
+            # Refuse generation before any model/mail call when no verified recipient exists.
+            from app.services.recipients import delivery_emails
+            if not delivery_emails(db,user):
+                raise RuntimeError("没有已验证收件邮箱，请先验证账号邮箱或添加并验证其他地址")
             # 1. 解析关键词（兼容中英文逗号/分号/顿号/空格分隔；曾因仅按英文逗号切分导致
             #    「苹果手机的折叠屏，苹果Duo」整串变单关键词而零命中——严重 BUG 修复）
             import re as _re
@@ -155,44 +169,90 @@ def generate_report(self, subscription_id: int):
                 news_items = news_items + custom_items
                 news_items.sort(key=lambda x: (x.get("relevance", 0) > 0, x.get("relevance", 0)), reverse=True)
 
+            from app.services.brief_quality import prioritize_materials, freshness, guide_from_analysis
+            previous_report = db.query(Report).filter(
+                Report.subscription_id == sub.id, Report.user_id == user.id,
+                Report.status == ReportStatus.SENT.value,
+            ).order_by(Report.id.desc()).first()
+            try:
+                previous_items = json.loads(previous_report.raw_news_json or '[]') if previous_report else []
+            except (ValueError, TypeError):
+                previous_items = []
+            news_items = prioritize_materials(news_items, previous_items)
+            # 2.6 事件级去重与进展判定（t162）：跨期记忆 + 无更新策略
+            from app.services import novelty as _nov
+            _groups = _nov.group_events(news_items)
+            _memory = _nov.load_memory(db, sub.id)
+            _cls = _nov.classify(_groups, _memory)
+            _policy = (getattr(sub, "novelty_policy", None) or "digest").lower()
+            _novelty_mode = "normal"
+            if not _cls["fresh"] and not _cls["progress"]:
+                if _policy == "skip":
+                    report.status = "skipped"
+                    report.error_message = "本期无重要更新，按订阅设置跳过发送。"
+                    report.display_json = json.dumps({"mode": "skipped", "repeat": len(_cls["repeat"])}, ensure_ascii=False)
+                    db.commit()
+                    touch_task(db, task_id, stage="skipped")
+                    _update_next_sent(db, sub.id)
+                    logger.info(f"[novelty] 订阅 {sub.id} 无新增事件，按 skip 策略跳过")
+                    return
+                news_items = _nov.flatten(_cls["repeat"]) or news_items
+                # always = 用户明确接受"照常推送"，不做周期汇总版式
+                _novelty_mode = "normal" if _policy == "always" else "digest"
+            else:
+                news_items = _nov.flatten(_cls["fresh"] + _cls["progress"])
+            _novelty_stats = {"mode": _novelty_mode, "fresh": len(_cls["fresh"]),
+                              "progress": len(_cls["progress"]), "repeat": len(_cls["repeat"])}
+            _digest_rows = []
+            if _novelty_mode == "digest":
+                for _g in _cls["repeat"][:12]:
+                    _row = _memory.get(_g["key"])
+                    _fs = getattr(_row, "first_seen_at", None) if _row else None
+                    _digest_rows.append({
+                        "title": (_g["primary"].get("title") or "")[:80],
+                        "first": _fs.strftime("%m-%d") if _fs else "—",
+                        "sources": len(_g.get("source_names") or []),
+                        "count": (getattr(_row, "push_count", 0) or 1) if _row else 1,
+                    })
             report.raw_news_json = json.dumps(news_items, ensure_ascii=False)
             report.status = ReportStatus.ANALYZING.value
             db.commit()
             touch_task(db, task_id, stage="analyzing")
 
-            # 3. AI 分析（三阶段 + 输出清洗）
+            # 3. 单次所选分析师生成 + 输出清洗
+            from app.services.usage_tracker import set_usage_context, clear_usage_context
+            set_usage_context(user_id=user.id, subscription_id=sub.id, report_id=report.id, stage="analyze")
             ai_html = ""
+            analysis_quality = {"warnings": [], "status": "disabled"}
             if sub.ai_analysis:
                 analyzer = get_analyzer()
-                ai_html = _run_async(analyzer.analyze(news_items, user, db, sub.prompt_template_id, sub.api_key_id, keywords=keywords))
+                _fb_hint = _nov.feedback_hint(db, user.id, sub.id)
+                if _fb_hint:
+                    logger.info(f"[feedback] 本期注入读者反馈提示（{len(_fb_hint)} 字）")
+                ai_html = _run_async(analyzer.analyze(news_items, user, db, sub.prompt_template_id, sub.api_key_id, keywords=keywords, feedback_hint=_fb_hint))
+                analysis_quality = getattr(ai_html, "quality", {"warnings": [], "status": "unknown"})
                 # Safety: clean output again
                 ai_html = _clean_ai_output(ai_html)
             else:
                 ai_html = "<p>AI 分析已关闭。</p>"
 
-            # 3.5 [N] 引用 → 原文链接（在分析正文里即可点击溯源）
-            ai_html = _linkify_citations(ai_html, news_items)
+            # 3.5 [N] 引用 → 句末灰色信源名；去掉链接、【】和裸 URL（t110 · M3）
+            from app.services.spoonbrief_digest import clean_citations
+            ai_html = clean_citations(ai_html, news_items[:20])
 
             report.ai_analysis_html = ai_html
 
             # 4. 获取收件邮箱
-            emails = (
-                db.query(EmailAddress)
-                .filter(
-                    EmailAddress.user_id == user.id,
-                    EmailAddress.is_verified == True,
-                )
-                .all()
-            )
-            to_emails = [e.email for e in emails[:3]]
+            # Same server-derived policy as /emails/: account primary, explicit extras,
+            # verified only, scoped by account and deduplicated before credits/tokens.
+            from app.services.recipients import delivery_emails
+            to_emails = delivery_emails(db,user)
             if not to_emails:
-                to_emails = [user.email]
+                raise RuntimeError("没有已验证收件邮箱，请先验证账号邮箱或添加并验证其他地址")
 
             # 5. 获取合规文本
-            compliance = {}
-            for key in ["icp_record", "privacy_policy", "unsubscribe_notice"]:
-                ct = db.query(ComplianceText).filter(ComplianceText.key == key).first()
-                compliance[key] = ct.content if ct else ""
+            from app.utils import compliance as _compliance
+            compliance = _compliance.load(db)
 
             # 生成退订 token
             from app.models.unsubscribe_token import UnsubscribeToken
@@ -211,13 +271,67 @@ def generate_report(self, subscription_id: int):
 
             # 6. 渲染邮件并逐收件人发送（每人使用自己的退订链接）
             touch_task(db, task_id, stage="sending")
-            subject = f"{report_name} - {date_str}"
+            subject = f"一勺热点｜{report_name} · {date_str}"
+            if _novelty_mode == "digest":
+                subject += " · 周期汇总"
             _WINDOW_LABELS = {"today": "今日", "3d": "近 3 天", "7d": "近 7 天", "10d": "近 10 天",
                               "15d": "近 15 天", "20d": "近 20 天", "25d": "近 25 天", "30d": "近 30 天"}
             time_window_label = _WINDOW_LABELS.get(sub.time_window, sub.time_window or "近 7 天")
             # 三层结构分层：相关层（画像/关键词命中）与广度层（各层封顶 15 条，控制邮件篇幅）
-            related_items = [i for i in news_items if i.get("relevance", 0) > 0][:15]
-            breadth_items = [i for i in news_items if i.get("relevance", 0) <= 0][:15]
+            related_items = [i for i in news_items if i.get("relevance", 0) > 0][:12]
+            breadth_items = [i for i in news_items if i.get("relevance", 0) <= 0][:8]
+
+            # Guide derives from exactly the selected analyst's output, never a parallel generic model.
+            display_items = related_items + breadth_items
+            fresh = freshness(news_items[:analysis_quality.get('material_count', 12)], previous_items)
+            decision = guide_from_analysis(ai_html, analysis_quality, fresh)
+            # t170：AI 报告恢复结构化决策层（速览/情绪/影响分/行动），失败自动回退引导层
+            if sub.ai_analysis:
+                try:
+                    from app.services.decision_layer import build_decision_layer
+                    _dl = _run_async(build_decision_layer(
+                        display_items, user, db, sub.api_key_id, analyzer=analyzer,
+                        limit=len(display_items) or 12, feedback_hint=_fb_hint,
+                    ))
+                    if _dl:
+                        _dl["_novelty"] = _novelty_stats
+                        decision = _dl
+                except Exception as _e:
+                    logger.warning(f"[decision] 决策层失败，使用引导层: {_e}")
+            try:
+                decision["_novelty"] = _novelty_stats
+            except Exception:
+                pass
+
+            by_idx = (decision or {}).get("items_by_idx") or {}
+            for idx, it in enumerate(display_items, 1):
+                d = by_idx.get(idx) or {}
+                it["_sentiment"] = d.get("sentiment")
+                it["_impact"] = d.get("impact")
+                it["_action"] = d.get("action")
+
+            # 板块内排序：利好 → 利空 → 中性
+            _SENT_ORDER = {"利好": 0, "利空": 1, "中性": 2}
+            related_items.sort(key=lambda x: _SENT_ORDER.get(x.get("_sentiment") or "中性", 2))
+            breadth_items.sort(key=lambda x: _SENT_ORDER.get(x.get("_sentiment") or "中性", 2))
+
+            _srcs = {(i.get("source") or "").strip() for i in (related_items + breadth_items) if (i.get("source") or "").strip()}
+            stats_line = f"入选 {len(related_items) + len(breadth_items)} 条 · 来源 {len(_srcs)} 家"
+            from app.services.feedback_link import build_url as _fb_url
+
+            # 落库决策数据与邮件展示条目：网页端「查看」可复刻同一封邮件的版式
+            try:
+                report.decision_json = json.dumps(decision, ensure_ascii=False) if decision else None
+                report.display_json = json.dumps(
+                    {"related": related_items, "breadth": breadth_items, "novelty": _novelty_stats,
+                     "digest_rows": _digest_rows,
+                     "progress": [i for i in (related_items + breadth_items) if i.get("_progress_from")]},
+                    ensure_ascii=False, default=str,
+                )
+                db.commit()
+            except Exception as e:
+                logger.warning(f"决策数据落库失败（不影响发信）: {e}")
+            clear_usage_context()
             send_results = []
             for email in to_emails:
                 token = unsubscribe_tokens.get(email, "")
@@ -234,14 +348,23 @@ def generate_report(self, subscription_id: int):
                     privacy_policy=compliance.get("privacy_policy", ""),
                     icp_record=compliance.get("icp_record", ""),
                     unsubscribe_url=unsubscribe_url,
+                    decision=decision,
+                    feedback_up_url=_fb_url(settings.app_url, report.id, report.user_id, "up"),
+                    feedback_down_url=_fb_url(settings.app_url, report.id, report.user_id, "down"),
+                    stats_line=stats_line,
+                    novelty=_novelty_stats,
+                    progress_items=[i for i in (related_items + breadth_items) if i.get("_progress_from")],
+                    digest_rows=_digest_rows,
+                    more_url=f"{settings.app_url}/dashboard/reports",
+                    site_url=settings.app_url,
                 )
-                # 发送失败自动重试一次（间隔 5 秒，规避瞬时 SMTP 抖动）
-                ok = send_email_sync([email], subject, html_body)
-                if not ok:
-                    logger.warning(f"邮件发送失败，5 秒后重试一次: {email}")
-                    import time as _time
-                    _time.sleep(5)
-                    ok = send_email_sync([email], subject, html_body)
+                import hashlib
+                from app.services.credits import deliver
+                recipient_key = hashlib.sha256(email.strip().lower().encode()).hexdigest()[:24]
+                run_key = self.request.id or f"report-{report.id}"
+                credit_key = f"{user.id}:mail:{subscription_id}:{run_key}:{recipient_key}"
+                ok = deliver(db, user.id, credit_key,
+                             lambda: send_email_sync([email], subject, html_body))
                 send_results.append(ok)
 
             # 7. 全部收件人发送成功才算成功
@@ -257,18 +380,27 @@ def generate_report(self, subscription_id: int):
                 _alert_admin_failure(subscription_id, "邮件发送失败（请检查 SMTP 配置）")
 
             db.commit()
+            if success:
+                try:
+                    _nov.remember(db, sub.id, report.id, _groups)
+                except Exception as _e:
+                    db.rollback()
+                    logger.warning(f"[novelty] 事件记忆写入失败: {_e}")
+                try:
+                    from app.services.ailifeos_hook import notify_brief
+                    notify_brief(db, report.user_id, report)
+                except Exception:
+                    pass
             touch_task(db, task_id, stage="done" if success else "failed",
                        status="done" if success else "failed",
                        error=None if success else report.error_message)
 
-            # 推送成功 → 统一扣除 1 额度（手动与定时同一规则）
-            if success:
-                consume_api_quota(user, db)
+            # Each recipient's successful delivery was settled above, never charge again.
 
             # 8. 自动清理
             _cleanup_old_reports(db, user.id)
 
-            logger.info(f"报告生成完成 [sub={subscription_id}] status={report.status} subject={subject}")
+            logger.info(f"报告生成完成 [sub={subscription_id}] status={report.status}")
 
         except Exception as e:
             logger.error(f"报告生成失败 [sub={subscription_id}]: {e}")
@@ -284,13 +416,19 @@ def generate_report(self, subscription_id: int):
 
     finally:
         db.close()
+        if lock_conn is not None:
+            try:
+                from sqlalchemy import text
+                lock_conn.execute(text("SELECT RELEASE_LOCK(:name)"), {'name': f'hb-report-{subscription_id}'})
+            finally:
+                lock_conn.close()
 
 
 def _fetch_user_sources(db, user_id: int, days: int) -> list:
     """抓取用户自定义 RSS 源（个人源池；失败仅记录不影响主流程）"""
     from datetime import timedelta as _td2
     import feedparser
-    import httpx
+    from app.utils.safe_fetch import fetch_public_rss
     from app.models.user_news_source import UserNewsSource
 
     sources = db.query(UserNewsSource).filter(
@@ -304,8 +442,7 @@ def _fetch_user_sources(db, user_id: int, days: int) -> list:
     since = datetime.utcnow() - _td2(days=days)
     for src in sources:
         try:
-            resp = httpx.get(src.url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, follow_redirects=True)
-            feed = feedparser.parse(resp.content)
+            feed = feedparser.parse(fetch_public_rss(src.url))
             for e in feed.entries[:20]:
                 published = None
                 if getattr(e, "published_parsed", None):
@@ -335,24 +472,6 @@ def _fetch_user_sources(db, user_id: int, days: int) -> list:
     return items
 
 
-def _linkify_citations(html: str, news_items: list) -> str:
-    """把 AI 分析正文中的 [N] 引用替换为对应原始新闻的超链接（可点击溯源）"""
-    if not html:
-        return html
-    for i, it in enumerate(news_items[:12]):
-        link = (it.get("link") or "").strip()
-        if not link.startswith("http"):
-            continue
-        marker = f"[{i + 1}]"
-        if marker in html:
-            html = html.replace(
-                marker,
-                f'<a href="{link}" target="_blank" rel="noopener" '
-                f'style="color:#f97316;text-decoration:underline;">{marker}</a>',
-            )
-    return html
-
-
 def _skip_with_notice(db, sub_id: int, user, sub, reason: str):
     """额度/上限拦截：记录一次失败报告 + 邮件通知用户 + 滚动下次发送时间"""
     from app.models.report import Report, ReportStatus
@@ -374,8 +493,13 @@ def _skip_with_notice(db, sub_id: int, user, sub, reason: str):
             '<p style="margin:0;color:#999;font-size:12.5px;">此通知由 一勺热点 自动发送，请勿回复。</p>'
             "</div>"
         )
-        send_email_sync([user.email], f"[一勺热点] 订阅「{sub.name}」未推送通知", html)
-        logger.info(f"[额度拦截] 已通知用户 {user.email}: {reason}")
+        from app.services.recipients import delivery_emails
+        notice_to = delivery_emails(db,user)
+        if not notice_to:
+            _update_next_sent(db, sub_id)
+            return
+        send_email_sync(notice_to, f"[一勺热点] 订阅「{sub.name}」未推送通知", html)
+        logger.info("[额度拦截] 已发送通知（不记录收件地址）")
     except Exception as e:
         logger.error(f"[额度拦截] 通知邮件发送失败: {e}")
     _update_next_sent(db, sub_id)
@@ -398,7 +522,7 @@ def _alert_admin_failure(sub_id: int, reason: str):
             "</div>"
         )
         send_email_sync([settings.admin_email], f"[一勺热点 告警] 报告生成失败 sub={sub_id}", html)
-        logger.info(f"[告警] 已发送失败告警邮件 -> {settings.admin_email}")
+        logger.info("[告警] 已发送失败告警邮件（不记录收件地址）")
     except Exception as e:
         logger.error(f"[告警] 告警邮件发送失败: {e}")
 

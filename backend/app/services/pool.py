@@ -36,6 +36,27 @@ def _keyword_tokens(k: str) -> List[str]:
             toks.append(w)
     return toks
 
+# t110 · M1：语义归并口径收紧。_STOP_WORDS 是单字集合，对 2 字以上的词不起作用，
+# 以前「AI」「美国」「地方」这类泛词也算实体词，两条不同报道共享 2 个泛词就被并成同一事件，
+# 「N 源交叉验证」因此虚高。下面这些泛词不参与「实体词交集」判断。
+_GENERIC_WORDS = set("""
+AI ai 人工智能 智能 大模型 模型 美国 中国 全球 国内 海外 地方 公司 企业 集团 市场 行业 产业 科技 技术 平台 产品
+用户 发布 宣布 推出 上线 收购 投资 融资 初创 计划 项目 业务 合作 发展 增长 下降 新款 首款 首个 首届 最新 今年
+明年 数据 中心 亿元 万元 美元 政策 消息 报道 回应 透露 表示 计划 推进 加速 升级 全面 正式 重磅 突破 开启
+""".split())
+_SPECIFIC_MIN_SHARED = 2   # 至少共享 2 个非泛词实体词
+_SPECIFIC_MIN_NGRAM = 0.20  # 且字符相似度不能太低
+
+
+def _same_event(tok: List[str], cand_tokens: List[str], grams: set, cand_grams: set) -> bool:
+    """两条标题是否算同一事件（交叉验证口径）。"""
+    sim = _ngram_similarity(grams, cand_grams)
+    if sim >= _NGRAM_THRESHOLD:
+        return True
+    specific = {t for t in tok if t not in _GENERIC_WORDS} & {t for t in cand_tokens if t not in _GENERIC_WORDS}
+    return len(specific) >= _SPECIFIC_MIN_SHARED and sim >= _SPECIFIC_MIN_NGRAM
+
+
 # ── 语义相似度 v2：字符 n-gram（本地零成本；将来可替换为 embedding API）──
 _NGRAM = 2
 _NGRAM_THRESHOLD = 0.40  # Dice 相似度阈值（实测 0.40 为精确甜点：3/3 全对零误判）
@@ -143,14 +164,10 @@ def ingest_sources(db: Session) -> Dict:
                         cand_tokens = json.loads(cand.tokens or "[]")
                     except Exception:
                         cand_tokens = []
-                    if len(set(tok) & set(cand_tokens)) >= 2:
-                        ev = cand
-                        logger.debug(f"语义归并(词): 「{it.get('title', '')[:24]}」 → 事件#{ev.id}")
-                        break
                     cand_grams = _char_grams(cand.title)
-                    if _ngram_similarity(grams, cand_grams) >= _NGRAM_THRESHOLD:
+                    if _same_event(tok, cand_tokens, grams, cand_grams):
                         ev = cand
-                        logger.debug(f"语义归并(相似度): 「{it.get('title', '')[:24]}」 → 事件#{ev.id}「{ev.title[:24]}」")
+                        logger.debug(f"语义归并: 「{it.get('title', '')[:24]}」 → 事件#{ev.id}「{ev.title[:24]}」")
                         break
 
             cred = it.get("credibility") or get_credibility(src.name)
@@ -224,7 +241,8 @@ def _parse_published(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+        from app.services.brief_quality import parsed_date
+        return parsed_date(s)
     except Exception:
         return None
 
@@ -248,6 +266,8 @@ def query_pool(
     # 时间窗：优先按发布时间，无发布时间的按入库时间
     q = q.filter((NewsItem.published_at >= since) | ((NewsItem.published_at == None) & (NewsItem.first_seen_at >= since)))
 
+    q = q.filter((NewsItem.published_at == None) | (NewsItem.published_at <= datetime.utcnow() + timedelta(minutes=10)))
+
     if category_id:
         matched = q.filter(NewsItem.category == category_id).all()
         if matched:
@@ -257,6 +277,7 @@ def query_pool(
     else:
         rows = q.all()
 
+    keywords = [k.strip().lower() for k in (keywords or []) if k.strip()]
     pwords = [w.lower() for w in (persona_words or []) if w]
     kw_tokens_map = {k: _keyword_tokens(k) for k in (keywords or [])}
     items = []
@@ -301,7 +322,7 @@ def query_pool(
             "source": item.source_name,
             "category": item.category or "综合",
             "published": item.published_at.isoformat() if item.published_at else None,
-            "credibility": ev.max_credibility if ev else item.credibility,
+            "credibility": item.credibility,
             "_matched": matched,
             "_cross_validated": (ev.source_count >= 2) if ev else False,
             "_source_count": ev.source_count if ev else 1,
@@ -315,12 +336,6 @@ def query_pool(
             items = kw_items
             logger.info(f"信息池查询: 关键词 {keywords} 命中 {len(items)} 条")
 
-    # 排序：与你相关(相关度>0)优先 → 相关度 → 多源验证 → 可信度 → 时效
-    items.sort(key=lambda x: (
-        x["relevance"] > 0,
-        x["relevance"],
-        x["_cross_validated"],
-        x["credibility"],
-        x["published"] or "",
-    ), reverse=True)
-    return items[:limit]
+    # Recency buckets before score prevent high-relevance old news monopolizing every issue.
+    from app.services.brief_quality import prioritize_materials
+    return prioritize_materials(items, [])[:limit]
