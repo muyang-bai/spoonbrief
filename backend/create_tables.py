@@ -1,3 +1,8 @@
+# ruff: noqa: F401
+# These imports are only here so the model modules register tables on
+# Base.metadata before create_all. AilifeosLink and StoryMemory are registered
+# by app.models but are not imported below; leave them out so this script
+# still creates the same set of tables as before.
 
 from app.database import engine, Base
 from app.models.user import User

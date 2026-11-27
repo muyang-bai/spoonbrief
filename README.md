@@ -78,6 +78,18 @@ docker compose -f docker-compose.yml \
                -f docker-compose.t158-credits.yml up -d
 ```
 
+现网钉扎（2026-11-27，写在上面两个 overlay 里）：
+
+| 服务 | 镜像 |
+|---|---|
+| frontend | `hotmailbrief:t191-web` |
+| backend | `hotmailbrief:t194-api` |
+| celery-worker / celery-beat | `hotmailbrief:t194-worker` |
+
+生产主机上的 `hotmailbrief:latest` 是后端镜像，不是前端。基础 `docker-compose.yml` 里的 `:latest` 只作为本地构建标签；上线时必须带上两个 overlay，避免前端容器落到后端镜像上。
+
+公开版本探针 `GET /app-version.json` 仍是 `t160-20261122-email`，和镜像标签不是同一套编号。
+
 ---
 
 ## 目录结构

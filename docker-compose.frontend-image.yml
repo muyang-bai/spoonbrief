@@ -1,3 +1,6 @@
+# Production frontend pin (2026-11-27): hotmailbrief:t191-web.
+# Do not set this service to hotmailbrief:latest. On the production host that
+# tag is the backend image, not the web image.
 services:
   frontend:
-    image: hotmailbrief:t180-web
+    image: hotmailbrief:t191-web

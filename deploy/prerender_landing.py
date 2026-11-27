@@ -9,7 +9,6 @@
 import os
 import re
 import sys
-import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

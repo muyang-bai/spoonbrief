@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════
-# 数据库恢复：bash deploy/restore.sh /root/backups/hotmailbrief/db_XXXX.sql.gz
+# 恢复本脚本自己打出来的 PostgreSQL 备份：
+#   bash deploy/restore.sh /root/backups/hotmailbrief/db_XXXX.sql.gz
+# 当前生产是宿主机 MySQL，不能用这个脚本恢复现网库。
 # ════════════════════════════════════════════════════════════
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -1,7 +1,10 @@
+# Production API/worker pin (2026-11-27). The filename is historical (t158);
+# worker and beat share the worker image. Keep this overlay separate from
+# docker-compose.frontend-image.yml.
 services:
   backend:
-    image: hotmailbrief:t182-api
+    image: hotmailbrief:t194-api
   celery-worker:
-    image: hotmailbrief:t182-worker
+    image: hotmailbrief:t194-worker
   celery-beat:
-    image: hotmailbrief:t182-worker
+    image: hotmailbrief:t194-worker

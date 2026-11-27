@@ -10,7 +10,6 @@ SQLite 快照 → PostgreSQL 迁移（在服务器上执行一次）
 """
 import sys
 import sqlalchemy as sa
-from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, ".")
 import app.models  # noqa: F401  注册全部模型
@@ -85,7 +84,7 @@ def main():
                 f"SELECT setval(pg_get_serial_sequence('{tname}', 'id'), "
                 f"COALESCE((SELECT MAX(id) FROM {tname}), 1))"
             ))
-        print(f"自增序列已校正")
+        print("自增序列已校正")
 
     print(f"✅ 迁移完成，共 {total_rows} 行 -> {settings.database_url_resolved.split('@')[-1]}")
 

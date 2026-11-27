@@ -1,6 +1,8 @@
 # 生产环境补充依赖（Linux 专用；本地 Windows 开发仍用 requirements.txt）
 -r requirements.txt
 
-# PostgreSQL 驱动
+# Historical PostgreSQL drivers. The install list is unchanged on purpose.
+# Current production sets DATABASE_URL to MySQL (see backend/.env.example);
+# a MySQL driver is not pinned in this file.
 psycopg2-binary==2.9.9
 asyncpg==0.29.0
