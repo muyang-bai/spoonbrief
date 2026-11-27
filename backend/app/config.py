@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # ── 数据库 ──
     use_sqlite: bool = False
-    database_url: str = ""  # 可选显式连接串（如 sqlite:///./hotmailbrief.db）；为空时按 use_sqlite 推导
+    database_url: str = ""  # 显式连接串优先（生产为 MySQL，见 .env.example）。为空且未开 SQLite 时才用下面的 postgres_* 拼 PostgreSQL URL。
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "hotmail"
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     # ── AI ──
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_model: str = "deepseek-v4-flash"  # 未写入环境变量时的回退。现网系统配置与 .env.example 都是 deepseek-flash。
     volcano_api_key: str = ""
     volcano_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     volcano_model: str = ""

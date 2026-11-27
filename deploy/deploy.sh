@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════
-# 一勺热点 部署脚本（首次部署 & 日常更新通用）
+# 一勺热点 本地构建脚本：docker compose build && up，镜像标签 hotmailbrief:latest。
+# 不是现网更新命令。现网必须叠两个 overlay（见 README），否则前端会用到
+# 生产主机上的 hotmailbrief:latest，而那个标签是后端镜像。
 # 用法: bash deploy/deploy.sh
 # ════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -8,8 +10,8 @@ cd "$(dirname "$0")/.."
 
 echo "==> [1/5] 检查 .env"
 if [ ! -f .env ]; then
-  echo "[错误] 缺少 .env：请从 backend/.env.production 复制，并确认:"
-  echo "       POSTGRES_HOST=postgres  REDIS_HOST=redis  ENABLE_LOCAL_SCHEDULER=false"
+  echo "[错误] 缺少 .env：请把 backend/.env.example 复制为仓库根目录 .env，并确认:"
+  echo "       DATABASE_URL（MySQL）  REDIS_HOST=redis  ENABLE_LOCAL_SCHEDULER=false"
   exit 1
 fi
 

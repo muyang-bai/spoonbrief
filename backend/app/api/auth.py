@@ -32,7 +32,7 @@ async def send_verification_code(req: SendCodeRequest, db: Session = Depends(get
     reg_toggle = db.query(SystemConfig).filter(SystemConfig.key == "allow_registration").first()
     if reg_toggle and reg_toggle.value == "false":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "管理员已关闭注册通道")
-    
+
     # 频率限制：同一邮箱60秒内只能请求一次
     sixty_sec_ago = datetime.utcnow() - timedelta(seconds=60)
     existing = (

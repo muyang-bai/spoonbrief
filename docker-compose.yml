@@ -1,3 +1,8 @@
+# hotmailbrief:latest in this file is the local build tag (the backend service
+# builds it). On the production host that same tag is the backend image, not
+# the frontend. Production overrides the app images via:
+#   docker-compose.frontend-image.yml  -> hotmailbrief:t191-web
+#   docker-compose.t158-credits.yml    -> hotmailbrief:t194-api / t194-worker
 services:
   redis:
     image: redis:7-alpine

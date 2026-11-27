@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ════════════════════════════════════════════════════════════
-# 每日备份：PostgreSQL 全量 + 环境配置，保留最近 7 份
+# 每日备份：对本 compose 文件里的 postgres 服务做 pg_dump，外加 .env，保留最近 7 份。
+# 当前生产是宿主机 MySQL，不在这份 compose 里。不要把本脚本当成现网备份命令。
 # 建议 crontab：0 3 * * *  bash /opt/hotmailbrief/deploy/backup.sh >> /var/log/hbm-backup.log 2>&1
 # ════════════════════════════════════════════════════════════
 set -euo pipefail
